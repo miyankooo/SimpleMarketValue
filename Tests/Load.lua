@@ -570,8 +570,8 @@ end
 
 check("the page is its own canvas named after the toc Title", canvas.frame ~= nil and canvas.name == "Simple Market Value", canvas.name)
 check("an intro opens the page", canvas.frame and canvas.frame.intro.text:find("^Shows every auction price as a percentage of its market value") ~= nil)
-check("two sliders and no checkbox", #sliders == 2 and templated.SettingsCheckboxTemplate == nil, #sliders)
-check("settings names in Title Case", table.concat(labels, ", ") == "Sell Threshold, Deal Threshold", table.concat(labels, ", "))
+check("four sliders and no checkbox", #sliders == 4 and templated.SettingsCheckboxTemplate == nil, #sliders)
+check("settings names in Title Case", table.concat(labels, ", ") == "Sell Threshold, Deal Threshold, Great Deal Threshold, Great Deal Sale Rate", table.concat(labels, ", "))
 check("Blizzard's section headers head the groups", table.concat(headers, ", ") == "Selling, Buying", table.concat(headers, ", "))
 local header = templated.GameFontHighlightLarge[1]
 local headerX, headerY = at(header, "TOPLEFT")
@@ -583,12 +583,19 @@ check("labels start at 37", at(sliderFor["Deal Threshold"].owner.label, "LEFT") 
 check("sliders start at the defaults with a step count", sliderFor["Sell Threshold"].value == 15 and sliderFor["Deal Threshold"].steps == 95, sliderFor["Deal Threshold"].steps)
 check("the label shows the value", sliderFor["Deal Threshold"].formatters[MinimalSliderWithSteppersMixin.Label.Right](20) == "-20%")
 check("every row and slider has a tooltip", sliderFor["Deal Threshold"].owner.scripts.OnEnter ~= nil and sliderFor["Deal Threshold"].Slider.scripts.OnEnter ~= nil)
+local saleRate = sliderFor["Great Deal Sale Rate"]
+check("the great deal sliders start at 50% under and an 80% sale rate", sliderFor["Great Deal Threshold"].value == 50
+    and saleRate.value == 80 and saleRate.steps == 100 and saleRate.formatters[MinimalSliderWithSteppersMixin.Label.Right](80) == "80%")
+check("with the TSM app's sale rates the sale rate row is usable", saleRate.enabled == true and saleRate.owner.label.color == "gold")
 
 local repaint, repaints = AP.BagGlow.Repaint, 0
 AP.BagGlow.Repaint = function() repaints = repaints + 1 end
 sliderFor["Sell Threshold"]:SetValue(30)
 sliderFor["Deal Threshold"]:SetValue(40)
-check("a slider saves its value", AP.DB().sellThresholdPct == 30 and AP.DB().dealThresholdPct == 40)
+sliderFor["Great Deal Threshold"]:SetValue(60)
+saleRate:SetValue(50)
+check("a slider saves its value", AP.DB().sellThresholdPct == 30 and AP.DB().dealThresholdPct == 40
+    and AP.DB().greatDealThresholdPct == 60 and AP.DB().greatDealSaleRatePct == 50)
 check("only the sell threshold repaints the bag glow", repaints == 1, repaints)
 
 local defaults
@@ -597,9 +604,22 @@ for _, button in ipairs(templated.UIPanelButtonTemplate or {}) do
 end
 repaints = 0
 defaults:Click()
-check("Defaults restores every setting", AP.DB().sellThresholdPct == 15 and AP.DB().dealThresholdPct == 20 and sliderFor["Sell Threshold"].value == 15 and sliderFor["Deal Threshold"].value == 20)
+check("Defaults restores every setting", AP.DB().sellThresholdPct == 15 and AP.DB().dealThresholdPct == 20 and sliderFor["Sell Threshold"].value == 15 and sliderFor["Deal Threshold"].value == 20
+    and AP.DB().greatDealThresholdPct == 50 and AP.DB().greatDealSaleRatePct == 80 and sliderFor["Great Deal Threshold"].value == 50 and saleRate.value == 80)
 check("Defaults repaints the bag glow", repaints > 0)
 AP.BagGlow.Repaint = repaint
+
+-- Without them, a page built at the next login greys the sale rate row out
+do
+    setAppData(nil)
+    local before, loginCallbacks = #sliders, #loggedIn
+    assert(loadfile("UI/Settings.lua"))("SimpleMarketValue", AP)
+    for index = loginCallbacks + 1, #loggedIn do loggedIn[index]() end
+    local greyed = templated.MinimalSliderWithSteppersTemplate[before + 4]
+    check("without them the sale rate row greys out", greyed.owner.label.text == "Great Deal Sale Rate" and greyed.enabled == false
+        and greyed.owner.label.color == "gray" and templated.MinimalSliderWithSteppersTemplate[before + 3].enabled == nil)
+    setAppData(tsmValues)
+end
 
 -- ===== Chat =====
 -- Every line goes through the one helper: the bracketed title in gold, the message uncoloured
@@ -1044,10 +1064,10 @@ setAppData(tsmValues)
 -- 70 is half of TSM's sale average 140, but only 30% under Auctionator's 14-day average 100
 cheap.rowData = { itemKey = { itemID = 25 }, buyoutAmount = 70 }
 update()
-check("half the region's price but near the auction house's own average is no great deal", not cheap.texture.shown)
+check("with TSM, half its sale average is a great deal however near Auctionator's own average", cheap.texture.shown)
 historyDays = 2
 runNextFrame()
-check("a thin Auctionator history leaves the call to TSM's sale average", AP.Trend.IsGreatDeal(70, "item:25"))
+check("and Auctionator's history plays no part", AP.Trend.IsGreatDeal(70, "item:25"))
 historyDays = 3
 runNextFrame()
 setAppData(nil)
@@ -1062,7 +1082,18 @@ setAppData(tsmValues)
 cheap.rowData = { itemKey = { itemID = 25 }, buyoutAmount = 50 }
 update()
 check("half of both averages and an 80% sale rate glows in Blizzard's lists", cheap.texture.shown and dear.texture == nil)
-local shopped = { { itemKey = { itemID = 25 }, minPrice = 50 }, { itemKey = { itemID = 25 }, minPrice = 70 } }
+AP.DB().greatDealThresholdPct = 70
+update()
+check("a higher Great Deal Threshold repaints the row at once", not cheap.texture.shown)
+AP.DB().greatDealThresholdPct = 40
+check("a lower one takes in what 50% passed over", AP.Trend.IsGreatDeal(80, "item:25") and not AP.Trend.IsGreatDeal(90, "item:25"))
+AP.DB().greatDealThresholdPct, AP.DB().greatDealSaleRatePct = 50, 81
+update()
+check("a higher Great Deal Sale Rate repaints the row at once", not cheap.texture.shown)
+AP.DB().greatDealSaleRatePct = 80
+update()
+check("and the default lights it again", cheap.texture.shown)
+local shopped = { { itemKey = { itemID = 25 }, minPrice = 50 }, { itemKey = { itemID = 25 }, minPrice = 80 } }
 runNextFrame()
 AuctionatorShoppingTabDataProviderMixin.PrettifyData(nil, shopped)
 check("Auctionator's shopping rows mark only great deals", shopped[1].apGreatDeal == true and not shopped[2].apGreatDeal)
@@ -1084,14 +1115,17 @@ local function boxTooltip()
     greatBox.scripts.OnEnter(greatBox)
     return tooltipLines[1]
 end
-check("with TSM its tooltip names both averages and the sale rate", boxTooltip() == "# Ticked, only great deals glow green in every buy list: "
-    .. "items priced at least 50% below both Auctionator's 14-day average and TSM's sale average, that TSM sees sell 80% of the time or more. "
-    .. "Unticked, Blizzard's buy lists glow every deal past your Deal Threshold.", boxTooltip())
+check("with TSM its tooltip names TSM's sale average and the sale rate", boxTooltip() == "# Ticked, only great deals glow green in every buy list: "
+    .. "items priced at least 50% below TSM's sale average that TSM sees sell 80% of the time or more. "
+    .. "Unticked, Blizzard's buy lists glow every deal past your Deal Threshold. Type /smv to change the thresholds.", boxTooltip())
+AP.DB().greatDealThresholdPct, AP.DB().greatDealSaleRatePct = 40, 60
+check("and the thresholds as set", boxTooltip():find("at least 40% below TSM's sale average that TSM sees sell 60% of the time", 1, true) ~= nil, boxTooltip())
+AP.DB().greatDealThresholdPct, AP.DB().greatDealSaleRatePct = 50, 80
 setAppData(nil)
 check("with Auctionator alone it stays on and usable", AP.GreatDeals.IsOn() and greatBox:IsEnabled() and errorLine == nil)
 check("and its tooltip names Auctionator's average alone", boxTooltip() == "# Ticked, only great deals glow green in every buy list: "
     .. "items priced at least 50% below Auctionator's 14-day average. "
-    .. "Unticked, Blizzard's buy lists glow every deal past your Deal Threshold.", boxTooltip())
+    .. "Unticked, Blizzard's buy lists glow every deal past your Deal Threshold. Type /smv to change the thresholds.", boxTooltip())
 cheap.rowData, dear.rowData = { itemKey = { itemID = 25 }, buyoutAmount = 50 }, { itemKey = { itemID = 25 }, buyoutAmount = 70 }
 runNextFrame()
 update()

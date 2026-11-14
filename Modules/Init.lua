@@ -7,6 +7,8 @@ AP.title = C_AddOns.GetAddOnMetadata(addonName, "Title")
 AP.Defaults = {
     sellThresholdPct = 15,
     dealThresholdPct = 20,
+    greatDealThresholdPct = 50,
+    greatDealSaleRatePct = 80,
 }
 
 -- The table last seeded, so the defaults are filled once per saved table instead of on every call

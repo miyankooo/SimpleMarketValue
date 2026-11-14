@@ -4,14 +4,18 @@ local _, AP = ...
 
 local function plusPercent(value) return ("+%d%%"):format(value) end
 local function minusPercent(value) return ("-%d%%"):format(value) end
+local function percent(value) return ("%d%%"):format(value) end
 
--- Sections in display order; a row is key, label, help, then the slider's min, max, step and value formatter
+-- Sections in display order; a row is key, label, help, then the slider's min, max, step and value formatter. A row
+-- marked tsm only applies with the TSM app's sale rates and greys out without them
 local SECTIONS = {
     { "Selling", {
         { "sellThresholdPct", "Sell Threshold", "While you sell, percentages this far above the market value turn green and bag items glow green. As far below turns them red.", 5, 100, 1, plusPercent },
     } },
     { "Buying", {
         { "dealThresholdPct", "Deal Threshold", "While you buy, percentages this far below the market value turn green and rows in the Auction House buy lists glow green. As far above turns them red.", 5, 100, 1, minusPercent },
+        { "greatDealThresholdPct", "Great Deal Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, only rows this far below the market value glow green in the buy lists.", 5, 100, 1, minusPercent },
+        { "greatDealSaleRatePct", "Great Deal Sale Rate", "With the TSM desktop app, great deals must also sell at least this often by TSM's region sale rate.", 0, 100, 1, percent, tsm = true },
     } },
 }
 
@@ -21,11 +25,11 @@ local INTRO = "Shows every auction price as a percentage of its market value, th
     .. "percentage rests on fewer than 3 days of prices.\n\n"
     .. "The percentages show in item tooltips, in Auctionator's Shopping and Selling tabs and in Blizzard's auction "
     .. "lists. Deals glow green in Blizzard's buy lists, and items worth selling in the Selling tab's bag list. "
-    .. "Highlight Deals on the Shopping tab lights only great deals instead. Item tooltips add the average of "
-    .. "Auctionator's minimum buyouts over 14 days under Auctionator's own price lines.\n\n"
-    .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, "
-    .. "great deals must also sell 80% of the time, and the percentages in the auction lists measure against TSM's "
-    .. "region sale average wherever TSM has one."
+    .. "Highlight Deals on the Shopping tab lights only great deals instead, past the Great Deal Threshold. Item "
+    .. "tooltips add the average of Auctionator's minimum buyouts over 14 days under Auctionator's own price lines.\n\n"
+    .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, great deals must "
+    .. "also sell at least the Great Deal Sale Rate, and the percentages in the auction lists and great deals "
+    .. "measure against TSM's region sale average wherever TSM has one."
 
 -- The addon's page in Blizzard's Settings window, as its own canvas, copying the settings list's look
 -- (Blizzard_SettingsList.xml:14-30, Blizzard_SettingControls.xml, Blizzard_SettingControls.lua). Never a settings
@@ -137,6 +141,12 @@ local function fillFor(def)
     end
 end
 
+-- A row that does not apply greys out, as Blizzard's settings list does: label in GRAY_FONT_COLOR, control disabled
+local function SetRowEnabled(row, control, enabled)
+    row.label:SetTextColor((enabled and NORMAL_FONT_COLOR or GRAY_FONT_COLOR):GetRGB())
+    control:SetEnabled(enabled)
+end
+
 local function addSlider(panel, above, def)
     local key, label, _, minValue, maxValue, step, formatter = unpack(def)
     local fill = fillFor(def)
@@ -146,6 +156,8 @@ local function addSlider(panel, above, def)
     slider:Init(AP.DB()[key], minValue, maxValue, (maxValue - minValue) / step, {
         [MinimalSliderWithSteppersMixin.Label.Right] = formatter,
     })
+    -- The TSM app's data loads with the addon, before the page is built, and stays for the session
+    if def.tsm then SetRowEnabled(row, slider, AP.TSM.HasSaleRates()) end
     slider:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, value)
         -- Whole steps, whatever fraction the step division leaves
         setValue(key, math.floor(value + 0.5))

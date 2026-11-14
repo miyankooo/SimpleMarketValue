@@ -36,11 +36,12 @@ local texts, glows = setmetatable({}, WEAK), setmetatable({}, WEAK)
 local paintedData, paintedRule, anchoredTo = setmetatable({}, WEAK), setmetatable({}, WEAK), setmetatable({}, WEAK)
 
 -- The rule deal rows glow by: great deals only while Highlight Deals is ticked, else the Deal Threshold. A number,
--- so the per-frame check allocates nothing; thresholds start at 5, so -1 never clashes
-local GREAT_DEALS_RULE = -1
+-- so the per-frame check allocates nothing and a changed setting repaints the rows. Great deals take a negative
+-- number unique to their two settings, the sale rate below 101; thresholds start at 5, so they never clash
 local function dealRule()
-    if AP.GreatDeals.IsOn() then return GREAT_DEALS_RULE end
-    return AP.DB().dealThresholdPct
+    local db = AP.DB()
+    if AP.GreatDeals.IsOn() then return -1 - db.greatDealThresholdPct * 101 - db.greatDealSaleRatePct end
+    return db.dealThresholdPct
 end
 
 -- The rule of the pass under way, worked out once per frame instead of once per row
@@ -132,7 +133,7 @@ local function paintRow(row, list)
 
     local isDeal = false
     if list.buy and rowData then
-        if rule == GREAT_DEALS_RULE then
+        if rule < 0 then
             isDeal = AP.Trend.IsGreatDeal(rowData[list.price], itemRef)
         elseif trusted then
             isDeal = pct <= -rule

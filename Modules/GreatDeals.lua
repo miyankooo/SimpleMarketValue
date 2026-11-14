@@ -1,9 +1,9 @@
 local _, AP = ...
 
 -- "Highlight Deals", a checkbox beside Full Scan on Auctionator's Shopping tab: while ticked, only great deals glow
--- green in the buy lists, Blizzard's and Auctionator's alike. A great deal is at least 50% under Auctionator's 14-day
--- average; with the TSM app also under TSM's sale average, at a TSM sale rate of 80% or more
--- (AP.Trend.IsGreatDeal). The choice is saved, like a filter
+-- green in the buy lists, Blizzard's and Auctionator's alike. A great deal is at least the Great Deal Threshold under
+-- the market value; with the TSM app it must also sell at least the Great Deal Sale Rate (AP.Trend.IsGreatDeal). The
+-- choice is saved, like a filter
 AP.GreatDeals = {}
 
 local LABEL = "Highlight Deals"
@@ -81,15 +81,15 @@ end
 -- ===== Checkbox =====
 local function fillTooltip(tooltip)
     GameTooltip_SetTitle(tooltip, LABEL)
-    local rule
+    local db, rule = AP.DB()
     if AP.TSM.HasSaleRates() then
-        rule = ("items priced at least %d%% below both Auctionator's 14-day average and TSM's sale average, that TSM "
-            .. "sees sell %d%% of the time or more"):format(AP.Trend.GREAT_DEAL_PCT, AP.Trend.GREAT_DEAL_SALE_RATE)
+        rule = ("items priced at least %d%% below TSM's sale average that TSM sees sell %d%% of the time or more")
+            :format(db.greatDealThresholdPct, db.greatDealSaleRatePct)
     else
-        rule = ("items priced at least %d%% below Auctionator's 14-day average"):format(AP.Trend.GREAT_DEAL_PCT)
+        rule = ("items priced at least %d%% below Auctionator's 14-day average"):format(db.greatDealThresholdPct)
     end
     GameTooltip_AddNormalLine(tooltip, "Ticked, only great deals glow green in every buy list: " .. rule
-        .. ". Unticked, Blizzard's buy lists glow every deal past your Deal Threshold.")
+        .. ". Unticked, Blizzard's buy lists glow every deal past your Deal Threshold. Type /smv to change the thresholds.")
 end
 
 -- To the right of Full Scan, on the Export Results row, with its parent, so it hides whenever a buy screen covers the
