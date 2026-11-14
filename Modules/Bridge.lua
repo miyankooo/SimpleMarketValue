@@ -55,7 +55,8 @@ function AP.Bridge.AuctionPrice(itemRef)
     return nil
 end
 
--- Daily rows for one database key, newest first; empty without history
+-- Auctionator's daily rows for one database key, newest first, each with the day's lowest buyout as minSeen; empty
+-- without history
 function AP.Bridge.PriceHistory(dbKey)
     local db = Auctionator.Database
     if not db then return {} end
@@ -69,6 +70,11 @@ function AP.Bridge.PriceAge(dbKey)
     if not db then return nil end
     local ok, days = pcall(db.GetPriceAge, db, dbKey)
     return ok and type(days) == "number" and days or nil
+end
+
+-- The realm Auctionator files its database under, which the addon's own per-realm tables follow
+function AP.Bridge.Realm()
+    return tostring(Auctionator.State and Auctionator.State.CurrentRealm or GetRealmName())
 end
 
 -- ===== Price times =====
@@ -87,7 +93,7 @@ end
 EventUtil.ContinueOnAddOnLoaded(addonName, function()
     local db = AP.DB()
     if type(db.seenTimes) ~= "table" then db.seenTimes = {} end
-    local realm = tostring(Auctionator.State and Auctionator.State.CurrentRealm or GetRealmName())
+    local realm = AP.Bridge.Realm()
     if type(db.seenTimes[realm]) ~= "table" then db.seenTimes[realm] = {} end
     seenTimes = db.seenTimes[realm]
 
@@ -105,6 +111,19 @@ if Auctionator.DatabaseMixin and Auctionator.DatabaseMixin.SetPrice then
 end
 if Auctionator.Database and Auctionator.Database.SetPrice then
     hooksecurefunc(Auctionator.Database, "SetPrice", noteSeen)
+end
+
+-- Calls fn(itemIndexes) after every ProcessScan, Auctionator's write of one scan to its database: price-database key
+-- to a list of { price = unit price, available = units } (Source/Database/Mixin.lua). The instance and the mixin, as
+-- for SetPrice above; Auctionator's tables, not Blizzard's, so no taint
+function AP.Bridge.AfterProcessScan(fn)
+    local function hook(_, itemIndexes) fn(itemIndexes) end
+    if Auctionator.DatabaseMixin and Auctionator.DatabaseMixin.ProcessScan then
+        hooksecurefunc(Auctionator.DatabaseMixin, "ProcessScan", hook)
+    end
+    if Auctionator.Database and Auctionator.Database.ProcessScan then
+        hooksecurefunc(Auctionator.Database, "ProcessScan", hook)
+    end
 end
 
 -- When a key last got a price on this realm, as time(); nil when the addon never saw it
@@ -141,17 +160,12 @@ function AP.Bridge.Listen(events, handler)
 end
 
 -- ===== Auction house =====
--- Whether Auctionator's "Alternate Scan Mode" option is on: Auctionator then runs the replicate scan, allowed once per
--- 15 minutes, and otherwise (its default) the incremental browse scan
-function AP.Bridge.IsReplicateScan()
-    return Auctionator.Config.Get(Auctionator.Config.Options.REPLICATE_SCAN) == true
-end
-
--- Start the full scan the way Auctionator's own Full Scan button does (Source_ModernAH ScanButton.lua); both scan
--- frames exist once the Auction House has opened
+-- Start Auctionator's replicate scan, the one its "Alternate Scan Mode" option runs, whatever that option says: it
+-- reads every listing on the Auction House, which the scan prices need, where its default incremental scan sees only
+-- each item's lowest price. Blizzard allows one every 15 minutes, and Auctionator says when the next is due. The scan
+-- frame exists once the Auction House has opened
 function AP.Bridge.StartFullScan()
-    local state = Auctionator.State
-    local scanFrame = AP.Bridge.IsReplicateScan() and state.FullScanFrameRef or state.IncrementalScanFrameRef
+    local scanFrame = Auctionator.State.FullScanFrameRef
     if scanFrame then scanFrame:InitiateScan() end
 end
 

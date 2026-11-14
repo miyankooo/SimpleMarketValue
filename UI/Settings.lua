@@ -20,13 +20,14 @@ local SECTIONS = {
 }
 
 -- What the addon does, where it works and what stays the game's own, before any row asks for a choice
-local INTRO = "Shows every auction price as a percentage of its market value, the 14-day average of Auctionator's "
-    .. "scans. Green marks a good price, yellow a fair one and red a poor one, by the thresholds below. A gray "
-    .. "percentage rests on fewer than 3 days of prices.\n\n"
+local INTRO = "Shows every auction price as a percentage of its market value, the 14-day average of your scans. "
+    .. "Each scan averages the cheapest 15 to 30% of an item's listings, without the odd one far from the rest, a day "
+    .. "without one takes Auctionator's lowest price, and the newest days count most. Green marks a good price, yellow a fair one and red a poor one, by the thresholds "
+    .. "below. A gray percentage rests on fewer than 3 days of scans.\n\n"
     .. "The percentages show in item tooltips, in Auctionator's Shopping and Selling tabs and in Blizzard's auction "
     .. "lists. Deals glow green in Blizzard's buy lists, and items worth selling in the Selling tab's bag list. "
     .. "Highlight Deals on the Shopping tab lights only great deals instead, past the Great Deal Threshold. Item "
-    .. "tooltips add the average of Auctionator's minimum buyouts over 14 days under Auctionator's own price lines.\n\n"
+    .. "tooltips add the 14-day average under Auctionator's own price lines.\n\n"
     .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, great deals must "
     .. "also sell at least the Great Deal Sale Rate, and the percentages in the auction lists and great deals "
     .. "measure against TSM's region sale average wherever TSM has one."

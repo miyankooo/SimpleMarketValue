@@ -1,7 +1,7 @@
 local _, AP = ...
 
--- "Full Scan" on Auctionator's Shopping tab: starts Auctionator's own full scan in the scan mode its options set, as the
--- Full Scan button on Auctionator's tab does, and shows the scan's progress in its label
+-- "Full Scan" on Auctionator's Shopping tab: starts Auctionator's replicate full scan, which reads every listing the
+-- scan prices need, and shows the scan's progress in its label
 AP.FullScanButton = {}
 
 local BUTTON_LABEL = "Full Scan"
@@ -75,23 +75,6 @@ AP.Bridge.Listen(scanEvents, function(_, eventName, progress)
     end
 end)
 
--- The default incremental scan pages the client's one browse result set, as a shopping search does, so it waits for the
--- search; Alternate Scan Mode reads its own list and always starts. Auctionator's own button never meets a running
--- search, since leaving the Shopping tab stops it
-local function blockedBySearch()
-    local shoppingFrame = AuctionatorShoppingFrame
-    return not AP.Bridge.IsReplicateScan() and shoppingFrame ~= nil and shoppingFrame.searchRunning == true
-end
-
-local function addStateLines(tooltip)
-    if AP.Bridge.IsReplicateScan() then
-        GameTooltip_AddNormalLine(tooltip, "Alternate Scan Mode is on: one scan every 15 minutes.")
-    end
-    if blockedBySearch() then
-        GameTooltip_AddErrorLine(tooltip, "Wait for the shopping search to finish first.")
-    end
-end
-
 -- Blizzard's yellow glowing callout, the one the Auction House uses for its undercut tip
 -- (Blizzard_AuctionHouseUI/Shared/Blizzard_AuctionHouseSellFrame.lua:507), as an own HelpTipTemplate frame on the
 -- target. HelpTip:Show would take a frame from Blizzard's shared pool, and writing to that pool from addon code would
@@ -151,8 +134,7 @@ function AP.FullScanButton.Ensure()
     local button = AP.CreateButton(exportButton, BUTTON_LABEL, BUTTON_WIDTH)
     AP.AttachTooltip(button, function(tooltip)
         GameTooltip_SetTitle(tooltip, BUTTON_LABEL)
-        GameTooltip_AddNormalLine(tooltip, "Runs Auctionator's full scan of the Auction House, like the Full Scan button on Auctionator's own tab, so every price and average is current.")
-        addStateLines(tooltip)
+        GameTooltip_AddNormalLine(tooltip, "Reads every listing on the Auction House through Auctionator's full scan, so every price and average is current. The Auction House allows one every 15 minutes.")
     end)
     button:SetPoint("LEFT", inset, "LEFT", 0, 0)
     button:SetPoint("BOTTOM", exportButton, "BOTTOM", 0, 0)
@@ -161,7 +143,7 @@ function AP.FullScanButton.Ensure()
     showTip, retireTip = AttachTip(button, TIP_TEXT, HelpTip.Point.TopEdgeCenter)
     button:SetScript("OnClick", function()
         retireTip()
-        if not blockedBySearch() then AP.Bridge.StartFullScan() end
+        AP.Bridge.StartFullScan()
     end)
 
     scanButton = button

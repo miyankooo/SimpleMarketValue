@@ -14,6 +14,7 @@
 
 Modules\Init.lua
 Modules\Bridge.lua
+Modules\ScanPrices.lua
 Modules\TSM.lua
 Modules\PriceHistory.lua
 Modules\Tooltip.lua

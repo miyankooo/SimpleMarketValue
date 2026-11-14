@@ -2,7 +2,7 @@ local _, AP = ...
 
 -- Rows right under Auctionator's own Vendor and Auction lines on item tooltips, which stay as Auctionator writes them.
 -- A section per source that has figures, its name followed by the age of its data:
--- Auctionator: the average of its minimum buyouts over 14 days, and its last minimum buyout against it.
+-- Auctionator: the 14-day average of the daily prices, and Auctionator's last minimum buyout against it.
 -- TSM, from the TSM desktop app: the region sale average, the same minimum buyout against it, and the region sale rate.
 -- Both percentages, Now vs ..., start from Auctionator's latest minimum buyout, the price its Auction line shows, and
 -- each label names the figure it measures against. Each row shows only with its figure. Prices are for one item
@@ -79,7 +79,7 @@ local function addBlock(tooltip, itemLink)
     local mode = AP.Trend.Mode()
     if average then
         addHeading(tooltip, "Auctionator", auctionatorAge(priceKey or averageKey))
-        addRow(tooltip, "Min. Buyout Average", money(average))
+        addRow(tooltip, "14-Day Average", money(average))
         addRow(tooltip, "Now vs Average", AP.Trend.Colorize(AP.Trend.Percent(lastPrice, average), mode, days))
     end
     if saleAverage or saleRate then

@@ -262,7 +262,7 @@ local listeners = {}
 local historyBuilds = 0
 local historyDays = 3
 local historyAge = 0
--- Daily minimums newest first, 100 each when unset
+-- Auctionator's daily lowest buyouts newest first, 100 each when unset
 local historyPrices
 
 local function provider()
@@ -296,7 +296,7 @@ function eventBus:Fire(_, eventName, ...)
     return self
 end
 
-local config, scansStarted = {}, { incremental = 0, replicate = 0 }
+local scansStarted = { incremental = 0, replicate = 0 }
 -- Auctionator's last recorded price of the item, and the lines its own tooltip code wrote
 local lastPrice, ownLines = 120, {}
 
@@ -326,7 +326,7 @@ Auctionator = {
         -- Auctionator's pricing of one item: its own lines go onto the tooltip
         ShowTipWithPricingDBKey = function(tooltip) if tooltip == GameTooltip then tooltipLines[#tooltipLines + 1] = "Vendor=1c | Auction=120c" end end,
     },
-    DatabaseMixin = { SetPrice = function() end },
+    DatabaseMixin = { SetPrice = function() end, ProcessScan = function() end },
     Database = {
         SetPrice = function() end,
         GetPrice = function() return lastPrice end,
@@ -338,8 +338,8 @@ Auctionator = {
             for day = 0, historyDays - 1 do rows[#rows + 1] = { rawDay = today - historyAge - day, minSeen = historyPrices and historyPrices[day + 1] or 100 } end
             return rows
         end,
+        ProcessScan = function() end,
     },
-    Config = { Get = function(key) return config[key] end, Options = { REPLICATE_SCAN = "replicate_scan_3" } },
     State = {
         CurrentRealm = "Forever",
         IncrementalScanFrameRef = { InitiateScan = function() scansStarted.incremental = scansStarted.incremental + 1 end },
@@ -440,6 +440,9 @@ end
 local AP = {}
 loadAddon(AP)
 check("files load in toc order", true)
+
+-- Most checks price against Auctionator's history alone; the addon's scan prices are checked under Scan prices
+local realHistory = AP.ScanPrices.History
 -- The client's ADDON_LOADED for this addon, as far as TSM's data goes; the rest of it runs at login below
 AP.TSM.LoadAppData()
 check("TSM's AppHelper folder on disk loads the helper, which hands the app's data over", loadedAddOns.SimpleMarketValue_TSM == true
@@ -645,7 +648,7 @@ local function tooltipText(tooltip)
     local text = table.concat(tooltipLines, " | "):gsub("^Vendor=1c | Auction=120c", ""):gsub("^ | ", "")
     return text
 end
-local AUCTIONATOR_BLOCK = "Auctionator <gray>(<1d)</> | > Min. Buyout Average=100c | > Now vs Average=<green>+20%</>"
+local AUCTIONATOR_BLOCK = "Auctionator <gray>(<1d)</> | > 14-Day Average=100c | > Now vs Average=<green>+20%</>"
 local TSM_BLOCK = "TSM <gray>(8h)</> | > Sale Average=140c | > Now vs Sale Avg=<yellow>-14%</> | > Sale Rate=<yellow>78%</>"
 local text = tooltipText()
 check("the tooltip adds the Auctionator and TSM sections, each with its age in brackets, and nothing else", text == AUCTIONATOR_BLOCK .. " | " .. TSM_BLOCK, text)
@@ -680,7 +683,7 @@ check("without a 14-day average there is no Auctionator section", text == TSM_BL
 historyDays = 3
 lastPrice = nil
 text = tooltipText()
-check("without a last price there is nothing to compare", text == "Auctionator <gray>(2d)</> | > Min. Buyout Average=100c | TSM <gray>(8h)</> | > Sale Average=140c | > Sale Rate=<yellow>78%</>", text)
+check("without a last price there is nothing to compare", text == "Auctionator <gray>(2d)</> | > 14-Day Average=100c | TSM <gray>(8h)</> | > Sale Average=140c | > Sale Rate=<yellow>78%</>", text)
 lastPrice = 120
 tsmValues.regionSale = nil
 setAppData(tsmValues)
@@ -693,7 +696,7 @@ tsmValues.regionSale, tsmValues.regionSalePercent = 140, 779
 -- Launch day on a fresh realm: the TSM app has not synced yet
 setAppData(nil)
 text = tooltipText()
-check("TSM without the app's data leaves the Auctionator section alone", text:find("TSM", 1, true) == nil and text:find("> Min. Buyout Average=100c", 1, true) ~= nil, text)
+check("TSM without the app's data leaves the Auctionator section alone", text:find("TSM", 1, true) == nil and text:find("> 14-Day Average=100c", 1, true) ~= nil, text)
 historyDays = 0
 text = tooltipText()
 check("no rows without any figure", text == "", text)
@@ -744,7 +747,7 @@ historyDays = 3
 pct, trusted = relative(70)
 check("without TSM it is Auctionator's 14-day average", pct == -30 and trusted, pct)
 text = tooltipText()
-check("without TSM the tooltip shows the Auctionator block alone", text:find("TSM", 1, true) == nil and text:find("> Min. Buyout Average=100c", 1, true) ~= nil, text)
+check("without TSM the tooltip shows the Auctionator block alone", text:find("TSM", 1, true) == nil and text:find("> 14-Day Average=100c", 1, true) ~= nil, text)
 setAppData(tsmValues)
 
 -- ===== Colour scale =====
@@ -764,14 +767,30 @@ check("the scale follows the threshold setting", scale(-7, buyer) == "<green>-7%
 AP.DB().dealThresholdPct = 20
 
 -- ===== Average price =====
--- The median of the daily minimums: a dump day and a spike day leave it alone
-historyDays, historyPrices = 5, { 10, 100, 110, 120, 1000 }
+-- TSM's day weights: 132 today, 125 a day ago, 100 two days ago, so (132 * 100 + 125 * 200 + 100 * 400) / 357
+historyDays, historyPrices = 3, { 100, 200, 400 }
 runNextFrame()
-check("the average price is the median of the daily prices", AP.Trend.AverageFor("item:25") == 110, AP.Trend.AverageFor("item:25"))
-historyDays, historyPrices = 4, { 10, 100, 120, 1000 }
-runNextFrame()
-check("an even number of days takes the mean of the two middle prices", AP.Trend.AverageFor("item:25") == 110, AP.Trend.AverageFor("item:25"))
+check("the average weighs each day by its age, the newest most", AP.Trend.AverageFor("item:25") == 219, AP.Trend.AverageFor("item:25"))
 historyDays, historyPrices = 3, nil
+
+-- Auctionator's lowest buyouts of 100 today and the two days before, and scan prices 0, 2 (twice), 4, 9 and 14 days
+-- ago: a scan price takes its day's place, the two scans of a day count as their mean, Auctionator fills the day
+-- with no scan, the days with neither count nothing, and 14 days is past the window.
+-- (132 * 300 + 125 * 100 + 100 * 150 + 45 * 200 + 21 * 400) / 423
+do
+    local today = AP.ScanPrices.Today()
+    local prices = SimpleMarketValueDB.scanPrices.Forever
+    prices["25"] = {
+        s = { [today] = 300, [today - 2] = 300, [today - 4] = 200, [today - 9] = 400, [today - 14] = 9999 },
+        n = { [today] = 1, [today - 2] = 2, [today - 4] = 1, [today - 9] = 1, [today - 14] = 1 },
+    }
+    runNextFrame()
+    local average, days = AP.Trend.AverageFor("item:25")
+    check("scan prices take their days, Auctionator's lowest buyouts fill the others, days with neither count nothing",
+        average == 200 and days == 5, tostring(average) .. " " .. tostring(days))
+    prices["25"] = nil
+    runNextFrame()
+end
 
 -- ===== Memoised average =====
 runNextFrame()
@@ -802,24 +821,131 @@ fullScan:Hide()
 check("the tip hides with its target without being marked", AP.DB().tipSeen == nil)
 fullScan:Show()
 fullScan:Click()
-check("click starts Auctionator's incremental scan by default", scansStarted.incremental == 1 and scansStarted.replicate == 0)
+check("click starts Auctionator's replicate scan, whatever its scan mode option says", scansStarted.replicate == 1 and scansStarted.incremental == 0)
 check("using Full Scan closes the tip for good", AP.DB().tipSeen == true and not tip.shown)
 fullScan:Hide()
 fullScan:Show()
 check("the tip stays away once seen", not tip.shown and #templated.HelpTipTemplate == 1)
-config.replicate_scan_3 = true
-fullScan:Click()
-check("Alternate Scan Mode starts the replicate scan", scansStarted.replicate == 1)
-config.replicate_scan_3 = nil
 AuctionatorShoppingFrame.searchRunning = true
 fullScan:Click()
-check("no incremental scan during a shopping search", scansStarted.incremental == 1)
+check("it starts during a shopping search too, since it reads its own list", scansStarted.replicate == 2)
 AuctionatorShoppingFrame.searchRunning = nil
 Auctionator.EventBus:Fire(nil, "ScanStart")
 Auctionator.EventBus:Fire(nil, "ScanProgress", 0.42)
 check("label shows the scan progress", fullScan.text == "Full Scan 42%", fullScan.text)
 Auctionator.EventBus:Fire(nil, "replicate_scan_complete")
 check("a finished scan shows green 100%", fullScan.text == "<green>Full Scan 100%</>", fullScan.text)
+
+-- ===== Scan prices =====
+-- Listings as price, units pairs
+local function listings(...)
+    local list = {}
+    for index = 1, select("#", ...), 2 do list[#list + 1] = { price = select(index, ...), available = select(index + 1, ...) } end
+    return list
+end
+local scanPrice = AP.ScanPrices.FromListings
+-- 33 units: the band is the cheapest 9 (30%), 2 at 90 and 7 at 100. Mean 97.8, standard deviation 4.2, so 90 lies
+-- past 1.5 deviations
+check("a new player's listings 10% under the rest drop out of the band", scanPrice(listings(90, 2, 100, 7, 120, 24)) == 100,
+    scanPrice(listings(90, 2, 100, 7, 120, 24)))
+local unsorted = listings(120, 24, 100, 7, 90, 2)
+check("listings count in price order, whatever order they come in, and are left as they came",
+    scanPrice(unsorted) == 100 and unsorted[1].price == 120 and unsorted[3].price == 90)
+check("past 15% of the units the band stops at a 20% price jump", scanPrice(listings(100, 20, 130, 80)) == 100, scanPrice(listings(100, 20, 130, 80)))
+check("the cheapest 15% count even past a jump", scanPrice(listings(100, 10, 150, 90)) == 133, scanPrice(listings(100, 10, 150, 90)))
+check("the band ends at 30% of the units", scanPrice(listings(100, 10, 110, 10, 115, 80)) == 108, scanPrice(listings(100, 10, 110, 10, 115, 80)))
+check("one listing is its own price", scanPrice(listings(250, 3)) == 250)
+check("no listing with a price, no scan price", scanPrice(listings(0, 5)) == nil and scanPrice({}) == nil)
+check("a listing without both numbers is skipped, not an error", scanPrice({ { price = 100 }, { available = 2 }, { price = 120, available = 1 } }) == 120)
+
+-- The full scan's ProcessScan call counts once Auctionator reports the full scan complete
+local today = AP.ScanPrices.Today()
+Auctionator.Database:ProcessScan({ ["25"] = listings(90, 2, 100, 7, 120, 24) }, function() end)
+check("a ProcessScan call alone records nothing, as the incremental scan makes the same call", realHistory("25") == nil)
+Auctionator.EventBus:Fire(nil, Auctionator.IncrementalScan.Events.ScanComplete)
+check("nor does the incremental scan's end", realHistory("25") == nil)
+Auctionator.EventBus:Fire(nil, Auctionator.FullScan.Events.ScanComplete, {})
+check("the full scan's end prices nothing inside Auctionator's own callback", realHistory("25") == nil)
+runNextFrame()
+local stored = realHistory("25")
+check("then stores the scan price of every key, under today", stored and stored.s[today] == 100 and stored.n[today] == 1)
+Auctionator.EventBus:Fire(nil, Auctionator.FullScan.Events.ScanComplete, {})
+runNextFrame()
+check("a call is read once", stored.n[today] == 1)
+Auctionator.Database:ProcessScan({ ["25"] = listings(110, 1) }, function() end)
+Auctionator.EventBus:Fire(nil, Auctionator.FullScan.Events.ScanComplete, {})
+runNextFrame()
+check("a second scan that day adds to the day", stored.s[today] == 210 and stored.n[today] == 2)
+runNextFrame()
+local storedAverage, storedDays = AP.Trend.AverageFor("item:25")
+-- Today 105, the mean of both scans, then Auctionator's 100 for the two days before: 36360 / 357
+check("and the 14-day average reads the day as the mean of its scans", storedAverage == 102 and storedDays == 3, tostring(storedAverage))
+
+-- A large Auction House: 200 keys a frame
+local many = {}
+for index = 1, 201 do many["k" .. index] = listings(10, 1) end
+Auctionator.Database:ProcessScan(many, function() end)
+Auctionator.EventBus:Fire(nil, Auctionator.FullScan.Events.ScanComplete, {})
+runNextFrame()
+local function storedKeys()
+    local count = 0
+    for index = 1, 201 do if realHistory("k" .. index) then count = count + 1 end end
+    return count
+end
+check("a full scan prices 200 keys a frame", storedKeys() == 200, storedKeys())
+runNextFrame()
+check("and the rest the next", storedKeys() == 201, storedKeys())
+
+-- Searches for one item count once their results are complete
+local commodityResults, commodityFull = { { unitPrice = 300, quantity = 4 } }, false
+local itemResults, itemsFull = {}, true
+C_AuctionHouse.HasFullCommoditySearchResults = function() return commodityFull end
+C_AuctionHouse.GetNumCommoditySearchResults = function() return #commodityResults end
+C_AuctionHouse.GetCommoditySearchResultInfo = function(_, index) return commodityResults[index] end
+C_AuctionHouse.HasFullItemSearchResults = function() return itemsFull end
+C_AuctionHouse.GetNumItemSearchResults = function() return #itemResults end
+C_AuctionHouse.GetItemSearchResultInfo = function(_, index) return itemResults[index] end
+Auctionator.EventBus:Fire(nil, Auctionator.AH.Events.CommoditySearchResultsReady, 25)
+check("a partial commodity search records nothing", stored.n[today] == 2)
+commodityFull = true
+Auctionator.EventBus:Fire(nil, Auctionator.AH.Events.CommoditySearchResultsReady, 25)
+check("a complete one adds its scan price", stored.s[today] == 510 and stored.n[today] == 3)
+
+-- Gear answers with variants: each listing joins its own item's keys, the base key pools them
+local browseKeys = Auctionator.Utilities.DBKeyFromBrowseResult
+Auctionator.Utilities.DBKeyFromBrowseResult = function(result) return { "26:" .. result.itemKey.itemLevel, "26" } end
+itemResults = {
+    { itemKey = { itemID = 26, itemLevel = 10 }, buyoutAmount = 500, quantity = 1 },
+    { itemKey = { itemID = 26, itemLevel = 20 }, buyoutAmount = 900, quantity = 1 },
+    { itemKey = { itemID = 26, itemLevel = 20 }, bidAmount = 50, quantity = 1 },
+}
+itemsFull = false
+Auctionator.EventBus:Fire(nil, Auctionator.AH.Events.ItemSearchResultsReady, { itemID = 26 })
+check("a partial item search records nothing", realHistory("26") == nil)
+itemsFull = true
+Auctionator.EventBus:Fire(nil, Auctionator.AH.Events.ItemSearchResultsReady, { itemID = 26 })
+check("an item search prices each variant and the base key, bid-only listings left out",
+    realHistory("26:10").s[today] == 500 and realHistory("26:20").s[today] == 900 and realHistory("26").s[today] == 500
+        and realHistory("26:20").n[today] == 1)
+Auctionator.Utilities.DBKeyFromBrowseResult = browseKeys
+
+-- Days past the window go at the next load, with keys left empty and anything malformed
+do
+    local prices = SimpleMarketValueDB.scanPrices.Forever
+    prices.old = { s = { [today - 14] = 5 }, n = { [today - 14] = 1 } }
+    prices.mixed = { s = { [today - 20] = 5, [today - 13] = 7 }, n = { [today - 20] = 1, [today - 13] = 1 } }
+    prices.broken = 5
+    local fresh, loadedBefore = {}, #addonLoaded.SimpleMarketValue
+    for _, path in ipairs({ "Modules/Init.lua", "Modules/Bridge.lua", "Modules/ScanPrices.lua" }) do
+        assert(loadfile(path))("SimpleMarketValue", fresh)
+    end
+    for index = loadedBefore + 1, #addonLoaded.SimpleMarketValue do addonLoaded.SimpleMarketValue[index]() end
+    check("old days, empty keys and malformed entries go at load", prices.old == nil and prices.broken == nil
+        and prices.mixed.s[today - 20] == nil and prices.mixed.s[today - 13] == 7 and prices["25"].s[today] == 510)
+    -- The checks after this price against Auctionator's history alone
+    prices["25"] = nil
+    runNextFrame()
+end
 
 -- ===== Auctionator's Relative column =====
 -- A row priced 70: -50% against TSM's 140, -30% against Auctionator's 100 where TSM has no figure
