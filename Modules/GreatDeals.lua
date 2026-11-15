@@ -2,8 +2,8 @@ local _, AP = ...
 
 -- "Highlight Deals", a checkbox beside Full Scan on Auctionator's Shopping tab: while ticked, only great deals glow
 -- green in the buy lists, Blizzard's and Auctionator's alike. A great deal is at least the Great Deal Threshold under
--- the market value; with the TSM app it must also sell at least the Great Deal Sale Rate (AP.Trend.IsGreatDeal). The
--- choice is saved, like a filter
+-- the market value; with the TSM app it must also sell at least the Commodity or, for gear, the Gear Sale Rate
+-- (AP.Trend.IsGreatDeal). The choice is saved, like a filter
 AP.GreatDeals = {}
 
 local LABEL = "Highlight Deals"
@@ -83,8 +83,8 @@ local function fillTooltip(tooltip)
     GameTooltip_SetTitle(tooltip, LABEL)
     local db, rule = AP.DB()
     if AP.TSM.HasSaleRates() then
-        rule = ("items priced at least %d%% below TSM's sale average that TSM sees sell %d%% of the time or more")
-            :format(db.greatDealThresholdPct, db.greatDealSaleRatePct)
+        rule = ("items priced at least %d%% below TSM's sale average that TSM sees sell at least %d%% of the time, %d%% for gear")
+            :format(db.greatDealThresholdPct, db.greatDealCommodityRatePct, db.greatDealGearRatePct)
     else
         rule = ("items priced at least %d%% below Auctionator's 14-day average"):format(db.greatDealThresholdPct)
     end

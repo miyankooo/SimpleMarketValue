@@ -7,8 +7,12 @@ AP.title = C_AddOns.GetAddOnMetadata(addonName, "Title")
 AP.Defaults = {
     sellThresholdPct = 15,
     dealThresholdPct = 20,
-    greatDealThresholdPct = 50,
-    greatDealSaleRatePct = 80,
+    -- Highlight Deals: 20% under the market value, at a TSM sale rate of 80% for goods and 60% for gear, which sells
+    -- less often. On a full scan of Forever's EU auction house (2026-11-15), 50% at 80% matched one item; 20% matched
+    -- 19 items at 80% and 104 at 60%
+    greatDealThresholdPct = 20,
+    greatDealCommodityRatePct = 80,
+    greatDealGearRatePct = 60,
 }
 
 -- The table last seeded, so the defaults are filled once per saved table instead of on every call

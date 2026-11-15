@@ -134,15 +134,24 @@ function AP.Trend.SalePercent(rate)
     return rate and math.floor(rate * 100 + 0.5)
 end
 
+-- Gear by Auctionator's own rule, weapons, armor and profession tools, from the item's class, which the client knows
+-- without loading the item; an item key or a link
+local function isGear(itemRef)
+    local itemID = type(itemRef) == "table" and itemRef.itemID
+        or type(itemRef) == "string" and tonumber(itemRef:match("item:(%d+)"))
+    return itemID ~= nil and AP.Bridge.IsEquipment(select(6, C_Item.GetItemInfoInstant(itemID)))
+end
+
 -- Whether price is a great deal for the item, the rows Highlight Deals lights: at least the Great Deal Threshold
 -- under its market value, the same percentage the Relative column shows, once enough data backs it. With the TSM
--- app's sale rates loaded, the item must also sell at least the Great Deal Sale Rate; Auctionator alone knows no
--- sale rate, so it asks for none
+-- app's sale rates loaded, the item must also sell at least the Gear Sale Rate for gear and the Commodity Sale Rate
+-- for anything else; Auctionator alone knows no sale rate, so it asks for none
 function AP.Trend.IsGreatDeal(price, itemRef)
     local db = AP.DB()
     if AP.TSM.HasSaleRates() then
         local salePercent = AP.Trend.SalePercent(AP.TSM.SaleRate(itemRef))
-        if not (salePercent and salePercent >= db.greatDealSaleRatePct) then return false end
+        local minimum = isGear(itemRef) and db.greatDealGearRatePct or db.greatDealCommodityRatePct
+        if not (salePercent and salePercent >= minimum) then return false end
     end
     local value, days = AP.Trend.MarketValue(itemRef)
     local pct = AP.Trend.Percent(price, value)

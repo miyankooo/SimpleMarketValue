@@ -15,7 +15,8 @@ local SECTIONS = {
     { "Buying", {
         { "dealThresholdPct", "Deal Threshold", "While you buy, percentages this far below the market value turn green and rows in the Auction House buy lists glow green. As far above turns them red.", 5, 100, 1, minusPercent },
         { "greatDealThresholdPct", "Great Deal Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, only rows this far below the market value glow green in the buy lists.", 5, 100, 1, minusPercent },
-        { "greatDealSaleRatePct", "Great Deal Sale Rate", "With the TSM desktop app, great deals must also sell at least this often by TSM's region sale rate.", 0, 100, 1, percent, tsm = true },
+        { "greatDealCommodityRatePct", "Commodity Sale Rate", "With the TSM desktop app, great deals on anything but gear, such as cloth, herbs and potions, must also sell at least this often by TSM's region sale rate.", 0, 100, 1, percent, tsm = true },
+        { "greatDealGearRatePct", "Gear Sale Rate", "With the TSM desktop app, great deals on weapons and armor must also sell at least this often by TSM's region sale rate. Gear sells less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true },
     } },
 }
 
@@ -29,7 +30,7 @@ local INTRO = "Shows every auction price as a percentage of its market value, th
     .. "Highlight Deals on the Shopping tab lights only great deals instead, past the Great Deal Threshold. Item "
     .. "tooltips add the 14-day average under Auctionator's own price lines.\n\n"
     .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, great deals must "
-    .. "also sell at least the Great Deal Sale Rate, and the percentages in the auction lists and great deals "
+    .. "also sell at least the Commodity or Gear Sale Rate, and the percentages in the auction lists and great deals "
     .. "measure against TSM's region sale average wherever TSM has one."
 
 -- The addon's page in Blizzard's Settings window, as its own canvas, copying the settings list's look
