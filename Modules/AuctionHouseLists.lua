@@ -37,11 +37,13 @@ local paintedData, paintedRule, anchoredTo = setmetatable({}, WEAK), setmetatabl
 
 -- The rule deal rows glow by: great deals only while Highlight Deals is ticked, else the Deal Threshold. A number,
 -- so the per-frame check allocates nothing and a changed setting repaints the rows. Great deals take a negative
--- number unique to their three settings, the sale rates below 101; thresholds start at 5, so they never clash
+-- number unique to their four settings, each at most 100, so written in base 101; thresholds start at 5, so they never
+-- clash
 local function dealRule()
     local db = AP.DB()
     if AP.GreatDeals.IsOn() then
-        return -1 - db.greatDealThresholdPct * 10201 - db.greatDealCommodityRatePct * 101 - db.greatDealGearRatePct
+        return -1 - ((db.greatDealCommodityPct * 101 + db.greatDealGearPct) * 101 + db.greatDealCommodityRatePct) * 101
+            - db.greatDealGearRatePct
     end
     return db.dealThresholdPct
 end

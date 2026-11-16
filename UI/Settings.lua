@@ -14,24 +14,26 @@ local SECTIONS = {
     } },
     { "Buying", {
         { "dealThresholdPct", "Deal Threshold", "While you buy, percentages this far below the market value turn green and rows in the Auction House buy lists glow green. As far above turns them red.", 5, 100, 1, minusPercent },
-        { "greatDealThresholdPct", "Great Deal Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, only rows this far below the market value glow green in the buy lists.", 5, 100, 1, minusPercent },
-        { "greatDealCommodityRatePct", "Commodity Sale Rate", "With the TSM desktop app, great deals on anything but gear, such as cloth, herbs and potions, must also sell at least this often by TSM's region sale rate.", 0, 100, 1, percent, tsm = true },
-        { "greatDealGearRatePct", "Gear Sale Rate", "With the TSM desktop app, great deals on weapons and armor must also sell at least this often by TSM's region sale rate. Gear sells less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true },
+    } },
+    { "Highlight Deals", {
+        { "greatDealCommodityPct", "Commodity Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, anything but items, such as cloth, herbs and potions, glows green in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
+        { "greatDealCommodityRatePct", "Commodity Sale Rate", "With the TSM desktop app, great deals on anything but items must also sell at least this often by TSM's region sale rate.", 0, 100, 1, percent, tsm = true },
+        { "greatDealGearPct", "Item Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, items, meaning weapons and armor, glow green in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
+        { "greatDealGearRatePct", "Item Sale Rate", "With the TSM desktop app, great deals on items, meaning weapons and armor, must also sell at least this often by TSM's region sale rate. Items sell less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true },
     } },
 }
 
 -- What the addon does, where it works and what stays the game's own, before any row asks for a choice
-local INTRO = "Shows every auction price as a percentage of its market value, the 14-day average of your scans. "
-    .. "Each scan averages the cheapest 15 to 30% of an item's listings, without the odd one far from the rest, a day "
-    .. "without one takes Auctionator's lowest price, and the newest days count most. Green marks a good price, yellow a fair one and red a poor one, by the thresholds "
-    .. "below. A gray percentage rests on fewer than 3 days of scans.\n\n"
+local INTRO = "Shows every auction price as a percentage of its market value: the 14-day average of the cheapest "
+    .. "listings your scans saw, without the odd one far from the rest, the newest days counting most. Green marks a "
+    .. "good price, yellow a fair one and red a poor one, by the thresholds below. A gray percentage rests on fewer "
+    .. "than 3 days of scans.\n\n"
     .. "The percentages show in item tooltips, in Auctionator's Shopping and Selling tabs and in Blizzard's auction "
-    .. "lists. Deals glow green in Blizzard's buy lists, and items worth selling in the Selling tab's bag list. "
-    .. "Highlight Deals on the Shopping tab lights only great deals instead, past the Great Deal Threshold. Item "
-    .. "tooltips add the 14-day average under Auctionator's own price lines.\n\n"
-    .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, great deals must "
-    .. "also sell at least the Commodity or Gear Sale Rate, and the percentages in the auction lists and great deals "
-    .. "measure against TSM's region sale average wherever TSM has one."
+    .. "lists. Deals glow green in Blizzard's buy lists, items worth selling in the Selling tab's bag list. Highlight "
+    .. "Deals on the Shopping tab lights only great deals instead, with thresholds of their own for commodities and "
+    .. "items.\n\n"
+    .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, and the auction "
+    .. "lists and great deals measure against TSM's sale average wherever TSM has one."
 
 -- The addon's page in Blizzard's Settings window, as its own canvas, copying the settings list's look
 -- (Blizzard_SettingsList.xml:14-30, Blizzard_SettingControls.xml, Blizzard_SettingControls.lua). Never a settings

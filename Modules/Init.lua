@@ -7,11 +7,12 @@ AP.title = C_AddOns.GetAddOnMetadata(addonName, "Title")
 AP.Defaults = {
     sellThresholdPct = 15,
     dealThresholdPct = 20,
-    -- Highlight Deals: 20% under the market value, at a TSM sale rate of 80% for goods and 60% for gear, which sells
-    -- less often. On a full scan of Forever's EU auction house (2026-11-15), 50% at 80% matched one item; 20% matched
-    -- 19 items at 80% and 104 at 60%
-    greatDealThresholdPct = 20,
+    -- Highlight Deals, per kind: 20% under the market value, at a TSM sale rate of 80% for commodities and 60% for items,
+    -- which sells less often. On a full scan of Forever's EU auction house (2026-11-15), 50% at 80% matched one item;
+    -- 20% matched 19 items at 80% and 104 at 60%
+    greatDealCommodityPct = 20,
     greatDealCommodityRatePct = 80,
+    greatDealGearPct = 20,
     greatDealGearRatePct = 60,
 }
 

@@ -134,28 +134,29 @@ function AP.Trend.SalePercent(rate)
     return rate and math.floor(rate * 100 + 0.5)
 end
 
--- Gear by Auctionator's own rule, weapons, armor and profession tools, from the item's class, which the client knows
--- without loading the item; an item key or a link
+-- Items, the settings' word for gear: Auctionator's own rule, weapons, armor and profession tools, from the item's
+-- class, which the client knows without loading the item; an item key or a link
 local function isGear(itemRef)
     local itemID = type(itemRef) == "table" and itemRef.itemID
         or type(itemRef) == "string" and tonumber(itemRef:match("item:(%d+)"))
     return itemID ~= nil and AP.Bridge.IsEquipment(select(6, C_Item.GetItemInfoInstant(itemID)))
 end
 
--- Whether price is a great deal for the item, the rows Highlight Deals lights: at least the Great Deal Threshold
--- under its market value, the same percentage the Relative column shows, once enough data backs it. With the TSM
--- app's sale rates loaded, the item must also sell at least the Gear Sale Rate for gear and the Commodity Sale Rate
--- for anything else; Auctionator alone knows no sale rate, so it asks for none
+-- Whether price is a great deal for the item, the rows Highlight Deals lights, by the settings of its kind, items or
+-- anything else as a commodity: at least the kind's threshold under its market value, the same percentage the
+-- Relative column shows, once enough data backs it. With the TSM app's sale rates loaded, the item must also sell at
+-- least the kind's sale rate; Auctionator alone knows no sale rate, so it asks for none
 function AP.Trend.IsGreatDeal(price, itemRef)
-    local db = AP.DB()
+    local db, gear = AP.DB(), isGear(itemRef)
     if AP.TSM.HasSaleRates() then
         local salePercent = AP.Trend.SalePercent(AP.TSM.SaleRate(itemRef))
-        local minimum = isGear(itemRef) and db.greatDealGearRatePct or db.greatDealCommodityRatePct
+        local minimum = gear and db.greatDealGearRatePct or db.greatDealCommodityRatePct
         if not (salePercent and salePercent >= minimum) then return false end
     end
     local value, days = AP.Trend.MarketValue(itemRef)
     local pct = AP.Trend.Percent(price, value)
-    return pct ~= nil and (days == nil or days >= AP.Trend.MIN_DAYS) and pct <= -db.greatDealThresholdPct
+    local threshold = gear and db.greatDealGearPct or db.greatDealCommodityPct
+    return pct ~= nil and (days == nil or days >= AP.Trend.MIN_DAYS) and pct <= -threshold
 end
 
 -- ===== The player's side =====

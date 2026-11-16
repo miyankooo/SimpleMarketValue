@@ -1,9 +1,9 @@
 local _, AP = ...
 
 -- "Highlight Deals", a checkbox beside Full Scan on Auctionator's Shopping tab: while ticked, only great deals glow
--- green in the buy lists, Blizzard's and Auctionator's alike. A great deal is at least the Great Deal Threshold under
--- the market value; with the TSM app it must also sell at least the Commodity or, for gear, the Gear Sale Rate
--- (AP.Trend.IsGreatDeal). The choice is saved, like a filter
+-- green in the buy lists, Blizzard's and Auctionator's alike. A great deal is at least its kind's threshold under the
+-- market value, the items' (weapons and armor) or the commodities'; with the TSM app it must also sell at least its
+-- kind's sale rate (AP.Trend.IsGreatDeal). The choice is saved, like a filter
 AP.GreatDeals = {}
 
 local LABEL = "Highlight Deals"
@@ -83,13 +83,16 @@ local function fillTooltip(tooltip)
     GameTooltip_SetTitle(tooltip, LABEL)
     local db, rule = AP.DB()
     if AP.TSM.HasSaleRates() then
-        rule = ("items priced at least %d%% below TSM's sale average that TSM sees sell at least %d%% of the time, %d%% for gear")
-            :format(db.greatDealThresholdPct, db.greatDealCommodityRatePct, db.greatDealGearRatePct)
+        rule = ("commodities priced at least %d%% below TSM's sale average that TSM sees sell at least %d%% of "
+            .. "the time, and items at least %d%% below that sell at least %d%% of the time"):format(
+            db.greatDealCommodityPct, db.greatDealCommodityRatePct, db.greatDealGearPct, db.greatDealGearRatePct)
     else
-        rule = ("items priced at least %d%% below Auctionator's 14-day average"):format(db.greatDealThresholdPct)
+        rule = ("commodities priced at least %d%% and items at least %d%% below Auctionator's 14-day average")
+            :format(db.greatDealCommodityPct, db.greatDealGearPct)
     end
     GameTooltip_AddNormalLine(tooltip, "Ticked, only great deals glow green in every buy list: " .. rule
-        .. ". Unticked, Blizzard's buy lists glow every deal past your Deal Threshold. Type /smv to change the thresholds.")
+        .. ". Unticked, Blizzard's buy lists glow every deal past your Deal Threshold. Type /smv to change the "
+        .. "thresholds.")
 end
 
 -- To the right of Full Scan, on the Export Results row, with its parent, so it hides whenever a buy screen covers the
