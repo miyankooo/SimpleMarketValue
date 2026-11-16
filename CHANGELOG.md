@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.6.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.5.0...v2.6.0) (2026-11-16)
+
+
+### Features
+
+* average the cheapest listings of every scan into the 14-day average, as TSM's Market Value does ([110d22a](https://github.com/miyankooo/SimpleMarketValue/commit/110d22a82b861254e38984677aca8bc5fdb5ace2))
+* Highlight Deals asks for 20% under the market value, with its own sale rate for gear: 80% for commodities, 60% for gear ([df4a440](https://github.com/miyankooo/SimpleMarketValue/commit/df4a44083d190a444c1d35870716a3171a70e89c))
+* set the Highlight Deals price and sale rate thresholds in the settings ([b572e33](https://github.com/miyankooo/SimpleMarketValue/commit/b572e331e03ca2e8cf66d79655be89a8329943e1))
+
 ## [2.5.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.4.0...v2.5.0) (2026-11-14)
 
 
