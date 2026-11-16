@@ -1,7 +1,8 @@
 local _, AP = ...
 
 -- "Full Scan" on Auctionator's Shopping tab: starts Auctionator's replicate full scan, which reads every listing the
--- scan prices need, and shows the scan's progress in its label
+-- scan prices need, shows the scan's progress in its label, and while Blizzard holds the next scan back, greys out
+-- with the minutes left. Its tooltip says when the last full scan on the realm finished
 AP.FullScanButton = {}
 
 local BUTTON_LABEL = "Full Scan"
@@ -15,8 +16,23 @@ local RESULT_SECONDS = 2
 -- The first step for a new player: prices before any percentage can show
 local TIP_TEXT = "Click Full Scan to load today's prices for every percentage and average."
 
-local scanButton, resetTimer, showTip
+local scanButton, resetTimer, showTip, waitTicker
 local lastPercent = 0
+
+-- True while a scan runs or its result shows, when the label belongs to the scan
+local busy = false
+
+-- When each realm's last full scan finished, as time()
+local function lastScans()
+    local db = AP.DB()
+    if type(db.lastFullScan) ~= "table" then db.lastFullScan = {} end
+    return db.lastFullScan
+end
+
+-- A wait in whole minutes, rounded up, as Auctionator's own message counts them
+local function minutesOf(seconds)
+    return math.ceil(seconds / 60)
+end
 
 local function setLabel(text)
     if scanButton then scanButton:SetText(text) end
@@ -33,19 +49,44 @@ local function percentLabel(percent)
     return ("%s %d%%"):format(BUTTON_LABEL, percent)
 end
 
+local function stopWaiting()
+    if waitTicker then
+        waitTicker:Cancel()
+        waitTicker = nil
+    end
+end
+
+-- Enabled once Auctionator would start a scan, else greyed; between scans the label shows the minutes left, counted
+-- down once a second only while the button shows and waits
+local function refreshIdle()
+    if not scanButton then return end
+    local wait = AP.Bridge.FullScanWait()
+    scanButton:SetEnabled(wait == 0)
+    if not busy then
+        setLabel(wait == 0 and BUTTON_LABEL or ("%s %dm"):format(BUTTON_LABEL, minutesOf(wait)))
+    end
+    if wait > 0 and scanButton:IsVisible() then
+        if not waitTicker then waitTicker = C_Timer.NewTicker(1, refreshIdle) end
+    else
+        stopWaiting()
+    end
+end
+
 local function showProgress(percent)
     cancelReset()
-    lastPercent = percent
+    busy, lastPercent = true, percent
     setLabel(percentLabel(percent))
+    refreshIdle()
 end
 
 -- Green at 100% after a finished scan, red at the reached percentage after a failed one, then back to Full Scan
 local function showResult(percent, color)
     cancelReset()
+    busy = true
     setLabel(color:WrapTextInColorCode(percentLabel(percent)))
     resetTimer = C_Timer.NewTimer(RESULT_SECONDS, function()
-        resetTimer = nil
-        setLabel(BUTTON_LABEL)
+        resetTimer, busy = nil, false
+        refreshIdle()
     end)
 end
 
@@ -69,6 +110,7 @@ AP.Bridge.Listen(scanEvents, function(_, eventName, progress)
     elseif step == "ScanProgress" then
         showProgress(math.min(99, math.floor((progress or 0) * 100)))
     elseif step == "ScanComplete" then
+        if eventName == Auctionator.FullScan.Events.ScanComplete then lastScans()[AP.Bridge.Realm()] = time() end
         showResult(100, GREEN_FONT_COLOR)
     elseif step == "ScanFailed" then
         showResult(lastPercent, RED_FONT_COLOR)
@@ -135,7 +177,16 @@ function AP.FullScanButton.Ensure()
     AP.AttachTooltip(button, function(tooltip)
         GameTooltip_SetTitle(tooltip, BUTTON_LABEL)
         GameTooltip_AddNormalLine(tooltip, "Reads every listing on the Auction House through Auctionator's full scan, so every price and average is current. The Auction House allows one every 15 minutes.")
+        local last = lastScans()[AP.Bridge.Realm()]
+        GameTooltip_AddNormalLine(tooltip, last and ("Last full scan: %s ago."):format(AP.Age(last))
+            or "No full scan on this realm yet.")
+        local wait = AP.Bridge.FullScanWait()
+        if wait > 0 then
+            GameTooltip_AddErrorLine(tooltip, ("Next full scan in %d |4minute:minutes;."):format(minutesOf(wait)))
+        end
     end)
+    -- Greyed while it waits, it still explains itself
+    button:SetMotionScriptsWhileDisabled(true)
     button:SetPoint("LEFT", inset, "LEFT", 0, 0)
     button:SetPoint("BOTTOM", exportButton, "BOTTOM", 0, 0)
     -- Above the button, where the results list leaves room
@@ -145,7 +196,10 @@ function AP.FullScanButton.Ensure()
         retireTip()
         AP.Bridge.StartFullScan()
     end)
+    button:HookScript("OnShow", refreshIdle)
+    button:HookScript("OnHide", stopWaiting)
 
     scanButton = button
+    refreshIdle()
     return true
 end

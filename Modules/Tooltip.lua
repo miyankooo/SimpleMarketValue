@@ -35,20 +35,12 @@ local function share(rate)
     return color:WrapTextInColorCode(("%d%%"):format(pct))
 end
 
--- "13m" for a time(): minutes within the hour, hours within the day, days after that
-local function age(when)
-    local minutes = math.max(0, math.floor((time() - when) / 60))
-    if minutes < 60 then return ("%dm"):format(math.max(1, minutes)) end
-    if minutes < 1440 then return ("%dh"):format(math.floor(minutes / 60)) end
-    return ("%dd"):format(math.floor(minutes / 1440))
-end
-
 -- When Auctionator last got a price for the key: to the minute once the addon saw it, otherwise in Auctionator's
 -- whole scan days, "<1d" for a price from today
 local function auctionatorAge(dbKey)
     if dbKey == nil then return nil end
     local seen = AP.Bridge.SeenTime(dbKey)
-    if seen then return age(seen) end
+    if seen then return AP.Age(seen) end
     local days = AP.Bridge.PriceAge(dbKey)
     if days then return days == 0 and "<1d" or ("%dd"):format(days) end
     return nil
@@ -84,7 +76,7 @@ local function addBlock(tooltip, itemLink)
     end
     if saleAverage or saleRate then
         local built = AP.TSM.BuiltTime("regionSale")
-        addHeading(tooltip, "TSM", built and age(built))
+        addHeading(tooltip, "TSM", built and AP.Age(built))
         addRow(tooltip, "Sale Average", money(saleAverage))
         addRow(tooltip, "Now vs Sale Avg", AP.Trend.Colorize(AP.Trend.Percent(lastPrice, saleAverage), mode))
         addRow(tooltip, "Sale Rate", share(saleRate))

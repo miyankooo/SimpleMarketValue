@@ -40,6 +40,29 @@ EventUtil.ContinueOnAddOnLoaded(addonName, function()
     AP.DB()
 end)
 
+-- ===== Setting changes =====
+-- Bumped on every change of a setting, so the list painters, which keep it per row, repaint the rows it changes
+AP.settingsRevision = 0
+local settingsListeners = {}
+
+-- fn runs after every change of a setting, such as Auctionator's lists working out their rows again
+function AP.OnSettingsChanged(fn)
+    settingsListeners[#settingsListeners + 1] = fn
+end
+
+function AP.SettingsChanged()
+    AP.settingsRevision = AP.settingsRevision + 1
+    for _, fn in ipairs(settingsListeners) do fn() end
+end
+
+-- "13m" for a time(): minutes within the hour, hours within the day, days after that
+function AP.Age(when)
+    local minutes = math.max(0, math.floor((time() - when) / 60))
+    if minutes < 60 then return ("%dm"):format(math.max(1, minutes)) end
+    if minutes < 1440 then return ("%dh"):format(math.floor(minutes / 60)) end
+    return ("%dd"):format(math.floor(minutes / 1440))
+end
+
 -- Every chat line: the bracketed title in the gold of Blizzard's own chat links, the message uncoloured
 function AP.Print(message)
     print(NORMAL_FONT_COLOR:WrapTextInColorCode("[" .. AP.title .. "]") .. ": " .. message)

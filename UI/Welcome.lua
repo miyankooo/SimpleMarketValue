@@ -14,7 +14,7 @@ end
 
 -- Auctionator is a toc dependency, so the client only runs this with it, and everything works on its scans alone.
 -- Without the TSM desktop app's data the line ends with what the app would add, as an extra, never a need
-local TSM_HINT = "Optional: the TSM desktop app adds TSM's sale prices, sale rates and price trend to the tooltip."
+local TSM_HINT = "Optional: the TSM desktop app adds TSM's region sale average and sale rate to the tooltip."
 
 function AP.PrintWelcome()
     local line = "Shows how every auction price compares to its market value, in tooltips and auction lists. Open the "

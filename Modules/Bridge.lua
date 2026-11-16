@@ -160,6 +160,16 @@ function AP.Bridge.Listen(events, handler)
 end
 
 -- ===== Auction house =====
+-- Seconds left until Auctionator allows the next replicate scan, 0 once it would start: Blizzard allows one every 15
+-- minutes, and Auctionator counts them from the last one's start (AuctionatorFullScanFrameMixin:CanInitiate, from
+-- Auctionator.SavedState.TimeOfLastReplicateScan)
+local REPLICATE_INTERVAL = 15 * 60
+function AP.Bridge.FullScanWait()
+    local last = Auctionator.SavedState and Auctionator.SavedState.TimeOfLastReplicateScan
+    if type(last) ~= "number" then return 0 end
+    return math.max(0, REPLICATE_INTERVAL - (time() - last))
+end
+
 -- Start Auctionator's replicate scan, the one its "Alternate Scan Mode" option runs, whatever that option says: it
 -- reads every listing on the Auction House, which the scan prices need, where its default incremental scan sees only
 -- each item's lowest price. Blizzard allows one every 15 minutes, and Auctionator says when the next is due. The scan

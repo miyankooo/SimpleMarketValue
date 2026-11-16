@@ -1,7 +1,7 @@
 local _, AP = ...
 
 -- The relative value on Blizzard's own auction lists: a coloured percentage column beside each row's price, and buy
--- list rows at least the deal threshold below the market value glow, or only great deals while Highlight Deals
+-- list rows at least the Deal Threshold below the market value glow green and great deals gold, while Highlight Deals
 -- is ticked. A frame of the addon's own repaints the visible
 -- rows while the Auction House shows, so no addon code ever runs inside Blizzard's list updates, whose row data later
 -- feeds the restricted purchase calls.
@@ -27,29 +27,17 @@ local LISTS = {
     { "ItemSellList", price = "buyoutAmount", cell = 2, point = "RIGHT", to = "RIGHT", x = -4, header = true },
 }
 
--- Blizzard's own row highlight, tinted green, so a deal reads as part of the list
+-- Blizzard's own row highlight, tinted in the deal colours, so a deal reads as part of the list
 local DEAL_ATLAS = "auctionhouse-ui-row-highlight"
 
 -- Per-row state lives here, keyed by Blizzard's rows, never on their frames
 local WEAK = { __mode = "k" }
 local texts, glows = setmetatable({}, WEAK), setmetatable({}, WEAK)
-local paintedData, paintedRule, anchoredTo = setmetatable({}, WEAK), setmetatable({}, WEAK), setmetatable({}, WEAK)
+local paintedData, paintedRevision, anchoredTo = setmetatable({}, WEAK), setmetatable({}, WEAK), setmetatable({}, WEAK)
 
--- The rule deal rows glow by: great deals only while Highlight Deals is ticked, else the Deal Threshold. A number,
--- so the per-frame check allocates nothing and a changed setting repaints the rows. Great deals take a negative
--- number unique to their four settings, each at most 100, so written in base 101; thresholds start at 5, so they never
--- clash
-local function dealRule()
-    local db = AP.DB()
-    if AP.GreatDeals.IsOn() then
-        return -1 - ((db.greatDealCommodityPct * 101 + db.greatDealGearPct) * 101 + db.greatDealCommodityRatePct) * 101
-            - db.greatDealGearRatePct
-    end
-    return db.dealThresholdPct
-end
-
--- The rule of the pass under way, worked out once per frame instead of once per row
-local passRule
+-- The settings revision and Highlight Deals of the pass under way, read once per frame instead of once per row; a row
+-- repaints when the revision changes, as the glows follow the thresholds and the checkbox
+local passRevision, passOn
 
 local function listFrame(list)
     local frame = AuctionHouseFrame
@@ -85,7 +73,6 @@ local function dealGlowFor(row)
         glow:SetAtlas(DEAL_ATLAS)
         glow:SetAllPoints()
         glow:SetBlendMode("ADD")
-        glow:SetVertexColor(GREEN_FONT_COLOR:GetRGB())
         glows[row] = glow
     end
     return glow
@@ -124,9 +111,9 @@ local function paintRow(row, list)
         anchoredTo[row] = anchor
     end
 
-    local rowData, rule = row.rowData, passRule
-    if paintedData[row] == rowData and paintedRule[row] == rule then return end
-    paintedData[row], paintedRule[row] = rowData, rule
+    local rowData = row.rowData
+    if paintedData[row] == rowData and paintedRevision[row] == passRevision then return end
+    paintedData[row], paintedRevision[row] = rowData, passRevision
 
     local value, pct, trusted, itemRef
     if rowData then
@@ -135,15 +122,18 @@ local function paintRow(row, list)
     end
     text:SetText(value or "")
 
-    local isDeal = false
-    if list.buy and rowData then
-        if rule < 0 then
-            isDeal = AP.Trend.IsGreatDeal(rowData[list.price], itemRef)
-        elseif trusted then
-            isDeal = pct <= -rule
-        end
+    local isDeal, isGreat = false, false
+    if passOn and list.buy and rowData then
+        isDeal = trusted and pct <= -AP.DB().dealThresholdPct
+        isGreat = AP.Trend.IsGreatDeal(rowData[list.price], itemRef)
     end
-    if isDeal or glows[row] then dealGlowFor(row):SetShown(isDeal) end
+    if isDeal or isGreat then
+        local glow = dealGlowFor(row)
+        glow:SetVertexColor((isGreat and AP.GreatDeals.GREAT_COLOR or AP.GreatDeals.DEAL_COLOR):GetRGB())
+        glow:Show()
+    elseif glows[row] then
+        glows[row]:Hide()
+    end
 end
 
 -- One painter per list, made once, so the per-frame walk allocates nothing
@@ -152,7 +142,7 @@ for _, list in ipairs(LISTS) do
 end
 
 local function paint()
-    passRule = dealRule()
+    passRevision, passOn = AP.settingsRevision, AP.GreatDeals.IsOn()
     for _, list in ipairs(LISTS) do
         local frame = listFrame(list)
         if frame and frame:IsVisible() and frame.ScrollBox then

@@ -1,9 +1,10 @@
 local _, AP = ...
 
--- "Highlight Deals", a checkbox beside Full Scan on Auctionator's Shopping tab: while ticked, only great deals glow
--- green in the buy lists, Blizzard's and Auctionator's alike. A great deal is at least its kind's threshold under the
--- market value, the items' (weapons and armor) or the commodities'; with the TSM app it must also sell at least its
--- kind's sale rate (AP.Trend.IsGreatDeal). The choice is saved, like a filter
+-- "Highlight Deals", a checkbox beside Full Scan on Auctionator's Shopping tab. While it is ticked, deals past the Deal
+-- Threshold glow green in the buy lists, Blizzard's and Auctionator's alike, and great deals gold; unticked, no row
+-- glows. A great deal is at least its kind's threshold under the market value, the items' (weapons and armor) or the
+-- commodities'; with the TSM app it must also sell at least its kind's sale rate (AP.Trend.IsGreatDeal). The label
+-- counts the great deals in the Shopping tab's results. The choice is saved, like a filter, and starts ticked
 AP.GreatDeals = {}
 
 local LABEL = "Highlight Deals"
@@ -11,24 +12,27 @@ local LABEL = "Highlight Deals"
 -- Space between the checkbox and Full Scan, the gap between related controls
 local GAP = 8
 
--- Blizzard's own row highlight tinted green, the glow deal rows take in Blizzard's lists
+-- Blizzard's own row highlight, the glow deal rows take in every buy list: green for a deal, the gold of Blizzard's
+-- headings for a great deal, so both show at once
 local GLOW_ATLAS = "auctionhouse-ui-row-highlight"
+AP.GreatDeals.DEAL_COLOR, AP.GreatDeals.GREAT_COLOR = GREEN_FONT_COLOR, NORMAL_FONT_COLOR
 
 -- Auctionator's buy lists, by the global name of the frame holding each: shopping results, and the buy screens of one
 -- item and of one commodity. Auctionator makes them on or shortly after the first Auction House visit
 local LISTING_HOLDERS = { "AuctionatorShoppingFrame", "AuctionatorBuyItemFrame", "AuctionatorBuyCommodityFrame" }
+local COUNTED_HOLDER = "AuctionatorShoppingFrame"
 
 local checkbox
 local attached = {}
 
 function AP.GreatDeals.IsOn()
-    return AP.DB().greatDeals == true
+    return AP.DB().greatDeals ~= false
 end
 
 -- ===== Auctionator's rows =====
 -- Per-row state lives here, keyed by Auctionator's rows, never on their frames
 local WEAK = { __mode = "k" }
-local glows, paintedData, paintedOn = setmetatable({}, WEAK), setmetatable({}, WEAK), setmetatable({}, WEAK)
+local glows, paintedData, paintedRevision = setmetatable({}, WEAK), setmetatable({}, WEAK), setmetatable({}, WEAK)
 
 local function glowFor(row)
     local glow = glows[row]
@@ -38,24 +42,53 @@ local function glowFor(row)
         glow:SetAtlas(GLOW_ATLAS)
         glow:SetAllPoints()
         glow:SetBlendMode("ADD")
-        glow:SetVertexColor(GREEN_FONT_COLOR:GetRGB())
         glows[row] = glow
     end
     return glow
 end
 
--- Whether the switch is on in the pass under way, worked out once per frame instead of once per row
-local passOn
+-- The switch and the settings revision of the pass under way, read once per frame instead of once per row
+local passOn, passRevision
 
--- The Relative column marks great deals on each entry as it decorates it, so a row only reads its mark, and only on a
--- change of its entry or of the switch
+-- The Relative column marks deals and great deals on each entry as it decorates it, so a row only reads its marks,
+-- and only on a change of its entry or of a setting
 local function paintRow(row)
-    local rowData, on = row.rowData, passOn
-    if paintedData[row] == rowData and paintedOn[row] == on then return end
-    paintedData[row], paintedOn[row] = rowData, on
+    local rowData = row.rowData
+    if paintedData[row] == rowData and paintedRevision[row] == passRevision then return end
+    paintedData[row], paintedRevision[row] = rowData, passRevision
 
-    local great = on and type(rowData) == "table" and rowData.apGreatDeal == true
-    if great or glows[row] then glowFor(row):SetShown(great) end
+    local entry = passOn and type(rowData) == "table" and rowData or nil
+    local great = entry ~= nil and entry.apGreatDeal == true
+    if great or (entry and entry.apDeal) then
+        local glow = glowFor(row)
+        glow:SetVertexColor((great and AP.GreatDeals.GREAT_COLOR or AP.GreatDeals.DEAL_COLOR):GetRGB())
+        glow:Show()
+    elseif glows[row] then
+        glows[row]:Hide()
+    end
+end
+
+-- The label with the number of great deals in the Shopping tab's results, counted again only when those results or a
+-- setting change; the plain label while there are no results
+local countedResults, countedSize, countedRevision
+
+local function updateCount(provider)
+    if not checkbox then return end
+    local results = provider and provider.results
+    local size = type(results) == "table" and #results or 0
+    if results == countedResults and size == countedSize and countedRevision == AP.settingsRevision then return end
+    countedResults, countedSize, countedRevision = results, size, AP.settingsRevision
+
+    local label = LABEL
+    if size > 0 then
+        local great = 0
+        for index = 1, size do
+            if results[index].apGreatDeal then great = great + 1 end
+        end
+        label = ("%s (%d)"):format(LABEL, great)
+    end
+    checkbox.Text:SetText(label)
+    checkbox:SetHitRectInsets(0, -(4 + checkbox.Text:GetStringWidth()), 0, 0)
 end
 
 -- One painter per listing, a child of it, so it only runs while the listing shows; true once all are in place
@@ -66,10 +99,12 @@ local function attachListings()
         local listing = holder and holder.ResultsListing
         local scrollBox = listing and listing.ScrollArea and listing.ScrollArea.ScrollBox
         if not attached[holderName] and scrollBox then
+            local provider = holderName == COUNTED_HOLDER and holder.DataProvider or nil
             local painter = CreateFrame("Frame", nil, listing)
             painter:SetScript("OnUpdate", function()
-                passOn = AP.GreatDeals.IsOn()
+                passOn, passRevision = AP.GreatDeals.IsOn(), AP.settingsRevision
                 scrollBox:ForEachFrame(paintRow)
+                if provider then updateCount(provider) end
             end)
             attached[holderName] = true
         end
@@ -90,8 +125,8 @@ local function fillTooltip(tooltip)
         rule = ("commodities priced at least %d%% and items at least %d%% below Auctionator's 14-day average")
             :format(db.greatDealCommodityPct, db.greatDealGearPct)
     end
-    GameTooltip_AddNormalLine(tooltip, "Ticked, only great deals glow green in every buy list: " .. rule
-        .. ". Unticked, Blizzard's buy lists glow every deal past your Deal Threshold. Type /smv to change the "
+    GameTooltip_AddNormalLine(tooltip, "Ticked, deals past your Deal Threshold glow green in every buy list and great "
+        .. "deals gold: " .. rule .. ". The number counts the great deals in these results. Type /smv to change the "
         .. "thresholds.")
 end
 
@@ -112,6 +147,7 @@ function AP.GreatDeals.Ensure()
         local checked = self:GetChecked()
         AP.DB().greatDeals = checked
         PlaySound(checked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
+        AP.SettingsChanged()
     end)
     return listingsReady
 end

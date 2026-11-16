@@ -5,16 +5,41 @@ local _, AP = ...
 -- Entry fields the column shows and sorts by
 local TEXT_FIELD = "apTrendText"
 local SORT_FIELD = "apTrendValue"
--- Whether a buyer's row is a great deal, for the rows Highlight Deals lights
+-- Whether a buyer's row is a deal, past the Deal Threshold, and a great deal, for the rows Highlight Deals lights
+local DEAL_FIELD = "apDeal"
 local GREAT_DEAL_FIELD = "apGreatDeal"
 
--- Relative value of price against the item's average, in the colours of mode
+-- Relative value of price against the item's average, in the colours of mode, and a buyer's deal marks
 local function setTrend(entry, price, itemRef, mode)
-    local text, pct = AP.Trend.Relative(price, itemRef, mode)
+    local text, pct, trusted = AP.Trend.Relative(price, itemRef, mode)
     entry[SORT_FIELD] = pct
     entry[TEXT_FIELD] = text or ""
-    entry[GREAT_DEAL_FIELD] = mode == AP.Trend.UP_RED and AP.Trend.IsGreatDeal(price, itemRef) or nil
+    local buyer = mode == AP.Trend.UP_RED
+    entry[DEAL_FIELD] = buyer and trusted and pct <= -AP.DB().dealThresholdPct or nil
+    entry[GREAT_DEAL_FIELD] = buyer and AP.Trend.IsGreatDeal(price, itemRef) or nil
 end
+
+-- Every provider decorated so far, with the function that decorates its entries, so a changed setting works them all
+-- out again: the colours and the marks follow the thresholds
+local decorated = setmetatable({}, { __mode = "k" })
+
+local function redecorate()
+    for provider, decorate in pairs(decorated) do
+        decorate(provider, provider.results)
+        provider:SetDirty()
+    end
+end
+
+-- A dragged slider changes a setting at every step, so the rows are worked out once it has rested this long
+local SETTLE_SECONDS = 0.3
+local changes = 0
+AP.OnSettingsChanged(function()
+    changes = changes + 1
+    local change = changes
+    C_Timer.After(SETTLE_SECONDS, function()
+        if change == changes then redecorate() end
+    end)
+end)
 
 -- Auctionator's listings only read their layout entries, so the three providers share one
 local TREND_COLUMN = {
@@ -88,12 +113,14 @@ local function wrapSort(mixin)
 end
 
 local function decorateEach(priceField, mode)
-    return function(_, entries)
+    local function decorate(provider, entries)
         if type(entries) ~= "table" then return end
+        if provider then decorated[provider] = decorate end
         for _, entry in ipairs(entries) do
             setTrend(entry, entry[priceField], AP.Trend.RefFor(entry), mode)
         end
     end
+    return decorate
 end
 
 -- Shopping results: a buyer's view, cheaper than average is good
@@ -115,11 +142,13 @@ hooksecurefunc(AuctionatorBuyItemDataProviderMixin, "AppendEntries", decorateEac
 -- frame that holds the provider, set before its search
 wrapLayout(AuctionatorBuyCommodityDataProviderMixin, besidePrice)
 wrapSort(AuctionatorBuyCommodityDataProviderMixin)
-hooksecurefunc(AuctionatorBuyCommodityDataProviderMixin, "AppendEntries", function(self, entries)
-    local itemID = self:GetParent().expectedItemID
+local function decorateCommodity(provider, entries)
+    local itemID = provider:GetParent().expectedItemID
     if type(entries) ~= "table" or not itemID then return end
+    decorated[provider] = decorateCommodity
     local itemRef = AP.Bridge.BaseItemKey(itemID)
     for _, entry in ipairs(entries) do
         setTrend(entry, entry.price, itemRef, AP.Trend.UP_RED)
     end
-end)
+end
+hooksecurefunc(AuctionatorBuyCommodityDataProviderMixin, "AppendEntries", decorateCommodity)

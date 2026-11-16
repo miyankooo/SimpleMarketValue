@@ -13,12 +13,12 @@ local SECTIONS = {
         { "sellThresholdPct", "Sell Threshold", "While you sell, percentages this far above the market value turn green and bag items glow green. As far below turns them red.", 5, 100, 1, plusPercent },
     } },
     { "Buying", {
-        { "dealThresholdPct", "Deal Threshold", "While you buy, percentages this far below the market value turn green and rows in the Auction House buy lists glow green. As far above turns them red.", 5, 100, 1, minusPercent },
+        { "dealThresholdPct", "Deal Threshold", "While you buy, percentages this far below the market value turn green, and with Highlight Deals ticked their rows glow green in every buy list. As far above turns them red.", 5, 100, 1, minusPercent },
     } },
     { "Highlight Deals", {
-        { "greatDealCommodityPct", "Commodity Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, anything but items, such as cloth, herbs and potions, glows green in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
+        { "greatDealCommodityPct", "Commodity Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, anything but items, such as cloth, herbs and potions, glows gold in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
         { "greatDealCommodityRatePct", "Commodity Sale Rate", "With the TSM desktop app, great deals on anything but items must also sell at least this often by TSM's region sale rate.", 0, 100, 1, percent, tsm = true },
-        { "greatDealGearPct", "Item Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, items, meaning weapons and armor, glow green in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
+        { "greatDealGearPct", "Item Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, items, meaning weapons and armor, glow gold in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
         { "greatDealGearRatePct", "Item Sale Rate", "With the TSM desktop app, great deals on items, meaning weapons and armor, must also sell at least this often by TSM's region sale rate. Items sell less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true },
     } },
 }
@@ -29,8 +29,8 @@ local INTRO = "Shows every auction price as a percentage of its market value: th
     .. "good price, yellow a fair one and red a poor one, by the thresholds below. A gray percentage rests on fewer "
     .. "than 3 days of scans.\n\n"
     .. "The percentages show in item tooltips, in Auctionator's Shopping and Selling tabs and in Blizzard's auction "
-    .. "lists. Deals glow green in Blizzard's buy lists, items worth selling in the Selling tab's bag list. Highlight "
-    .. "Deals on the Shopping tab lights only great deals instead, with thresholds of their own for commodities and "
+    .. "lists. Items worth selling glow green in the Selling tab's bag list. Highlight Deals on the Shopping tab lights "
+    .. "deals green and great deals gold in the buy lists, great deals by thresholds of their own for commodities and "
     .. "items.\n\n"
     .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, and the auction "
     .. "lists and great deals measure against TSM's sale average wherever TSM has one."
@@ -134,7 +134,8 @@ local controls = {}
 
 local function setValue(key, value)
     AP.DB()[key] = value
-    -- Painted glows depend on the threshold
+    -- Painted glows and colours depend on the thresholds
+    AP.SettingsChanged()
     if key == "sellThresholdPct" then AP.BagGlow.Repaint() end
 end
 
@@ -183,6 +184,7 @@ local function restoreDefaults()
         db[key] = value
         controls[key]:SetValue(value)
     end
+    AP.SettingsChanged()
     AP.BagGlow.Repaint()
 end
 
