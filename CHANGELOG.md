@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.7.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.6.0...v2.7.0) (2026-11-19)
+
+
+### Features
+
+* Auctionator's lists follow a changed threshold at once, with no new search ([afd76ed](https://github.com/miyankooo/SimpleMarketValue/commit/afd76ed088d756399f1154a07683d9fcb48a8fd6))
+* Full Scan greys out with the minutes left while the Auction House holds the next scan back, and its tooltip says how long ago the last full scan finished ([afd76ed](https://github.com/miyankooo/SimpleMarketValue/commit/afd76ed088d756399f1154a07683d9fcb48a8fd6))
+* Highlight Deals lights deals green and great deals gold in every buy list, Auctionator's too, and unticked no row glows ([afd76ed](https://github.com/miyankooo/SimpleMarketValue/commit/afd76ed088d756399f1154a07683d9fcb48a8fd6))
+* Highlight Deals takes its own threshold for commodities and for items, in a Highlight Deals section of the settings ([244ae60](https://github.com/miyankooo/SimpleMarketValue/commit/244ae6074e4c7e66559a5aa32b5c915c4d588b65))
+* the game's loading spinner turns beside Full Scan and Sale Scan while they run, and their labels stay plain; between scans Full Scan greys out and its tooltip says how long ([7aa7139](https://github.com/miyankooo/SimpleMarketValue/commit/7aa7139b10a9e4b5314b2d3d260cc15e7c0e8ba8))
+* the Highlight Deals label counts the great deals in your Shopping results ([afd76ed](https://github.com/miyankooo/SimpleMarketValue/commit/afd76ed088d756399f1154a07683d9fcb48a8fd6))
+* the settings have a Gear, Equipment and Weapons section and an All Other Items section, each with a Deal Threshold, a Sale Rate and Ignore Sale Rate, in place of the Buying and Highlight Deals sections ([7aa7139](https://github.com/miyankooo/SimpleMarketValue/commit/7aa7139b10a9e4b5314b2d3d260cc15e7c0e8ba8))
+
+
+### Bug Fixes
+
+* an item TSM sees sell rarely, such as 5% of the time, no longer glows as a deal however cheap ([7aa7139](https://github.com/miyankooo/SimpleMarketValue/commit/7aa7139b10a9e4b5314b2d3d260cc15e7c0e8ba8))
+* the deal thresholds, sale rates and Highlight Deals choice set in 2.6.0 carry over to the new settings ([7aa7139](https://github.com/miyankooo/SimpleMarketValue/commit/7aa7139b10a9e4b5314b2d3d260cc15e7c0e8ba8))
+* the welcome line no longer promises a TSM price trend ([afd76ed](https://github.com/miyankooo/SimpleMarketValue/commit/afd76ed088d756399f1154a07683d9fcb48a8fd6))
+
 ## [2.6.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.5.0...v2.6.0) (2026-11-16)
 
 
