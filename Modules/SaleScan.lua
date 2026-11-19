@@ -1,22 +1,20 @@
 local _, AP = ...
 
--- "Sale Scan": one live price search per distinct bag item, sequentially through Auctionator's throttle queue, recording each cheapest buyout in Auctionator's price database so the Relative column and the bag glow reflect current prices
+-- "Sale Scan": one live price search per distinct bag item, sequentially through Auctionator's throttle queue, recording
+-- each cheapest buyout in Auctionator's price database so the Relative column and the bag glow reflect current prices.
+-- Blizzard's spinner turns beside the button while it runs
 AP.SaleScan = {}
 
 local BUTTON_LABEL = "Sale Scan"
 
--- Fixed, so a changing progress label never resizes the button or moves what sits beside it
-local BUTTON_WIDTH = 112
-
 -- A search the server never answers is skipped after this
 local QUERY_TIMEOUT_SECONDS = 8
 
-local scanButton
+local scanButton, spinner
 
 -- queue holds the bag items still to scan (nil while idle), expected the item key of the in-flight search
 local state = {
     queue = nil,
-    total = 0,
     expected = nil,
     timeout = nil,
 }
@@ -25,10 +23,6 @@ local state = {
 local function hasSaleItem()
     local saleItem = AuctionatorSellingFrame and AuctionatorSellingFrame.SaleItemFrame
     return saleItem ~= nil and saleItem.itemInfo ~= nil
-end
-
-local function setLabel(text)
-    if scanButton then scanButton:SetText(text) end
 end
 
 local function cancelTimeout()
@@ -43,7 +37,7 @@ local function stop()
     cancelTimeout()
     state.queue = nil
     state.expected = nil
-    setLabel(BUTTON_LABEL)
+    spinner:Hide()
 end
 
 local nextQuery
@@ -53,7 +47,6 @@ local function runQuery(item)
     local isGear = AP.Bridge.IsEquipment(item.classID)
     local itemKey = isGear and AP.Bridge.BaseItemKey(item.itemID) or C_AuctionHouse.MakeItemKey(item.itemID)
     state.expected = itemKey
-    setLabel(("Scanning %d/%d"):format(state.total - #state.queue, state.total))
     if not AP.Bridge.SearchItem(itemKey, isGear) then
         nextQuery()
         return
@@ -148,7 +141,7 @@ local function start()
     if #items == 0 then return end
 
     state.queue = items
-    state.total = #items
+    spinner:Show()
     nextQuery()
 end
 
@@ -171,7 +164,7 @@ function AP.SaleScan.Ensure()
     local saleItem = sellingFrame and sellingFrame.SaleItemFrame
     if not inset or not saleItem then return false end
 
-    local button = AP.CreateButton(sellingFrame, BUTTON_LABEL, BUTTON_WIDTH)
+    local button = AP.CreateButton(sellingFrame, BUTTON_LABEL)
     AP.AttachTooltip(button, function(tooltip)
         GameTooltip_SetTitle(tooltip, BUTTON_LABEL)
         GameTooltip_AddNormalLine(tooltip, "Runs one live price search for every item in the bag panel, so the Relative column and the bag glow use current prices. Click again to cancel. Needs an empty sale slot.")
@@ -184,6 +177,9 @@ function AP.SaleScan.Ensure()
     end)
 
     sellingFrame:HookScript("OnHide", stop)
+    -- Left of the button, which ends at the inset's right edge
+    spinner = AP.CreateSpinner(button)
+    spinner:SetPoint("RIGHT", button, "LEFT", -4, 0)
 
     -- Auctionator calls Update after every change of the slotted item, including resets after posting
     hooksecurefunc(saleItem, "Update", updateEnabled)

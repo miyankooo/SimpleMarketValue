@@ -6,14 +6,26 @@ AP.title = C_AddOns.GetAddOnMetadata(addonName, "Title")
 -- Setting defaults; the settings panel uses the same keys as its variable keys
 AP.Defaults = {
     sellThresholdPct = 15,
-    dealThresholdPct = 20,
-    -- Highlight Deals, per kind: 20% under the market value, at a TSM sale rate of 80% for commodities and 60% for items,
-    -- which sells less often. On a full scan of Forever's EU auction house (2026-11-15), 50% at 80% matched one item;
+    -- Buying, per kind, gear and all other items: a deal is 20% under the market value at a TSM sale rate of 60% for
+    -- gear, which sells less often, and 80% for the rest. On a full scan of Forever's EU auction house (2026-11-15),
     -- 20% matched 19 items at 80% and 104 at 60%
-    greatDealCommodityPct = 20,
-    greatDealCommodityRatePct = 80,
-    greatDealGearPct = 20,
-    greatDealGearRatePct = 60,
+    gearDealPct = 20,
+    gearSaleRatePct = 60,
+    gearIgnoreSaleRate = false,
+    otherDealPct = 20,
+    otherSaleRatePct = 80,
+    otherIgnoreSaleRate = false,
+}
+
+-- Up to 2.6.0 a deal's thresholds and sale rates were kept per commodity and item, beside one Deal Threshold for the
+-- rest; the per-kind ones and the Highlight Deals switch carry over to the new keys once, and the old keys go
+local RENAMED = {
+    greatDealGearPct = "gearDealPct",
+    greatDealGearRatePct = "gearSaleRatePct",
+    greatDealCommodityPct = "otherDealPct",
+    greatDealCommodityRatePct = "otherSaleRatePct",
+    dealThresholdPct = false,
+    greatDeals = "highlightDeals",
 }
 
 -- The table last seeded, so the defaults are filled once per saved table instead of on every call
@@ -25,6 +37,10 @@ function AP.DB()
         SimpleMarketValueDB = {}
     end
     if seededDB ~= SimpleMarketValueDB then
+        for old, new in pairs(RENAMED) do
+            if new and SimpleMarketValueDB[new] == nil then SimpleMarketValueDB[new] = SimpleMarketValueDB[old] end
+            SimpleMarketValueDB[old] = nil
+        end
         for key, value in pairs(AP.Defaults) do
             if SimpleMarketValueDB[key] == nil then SimpleMarketValueDB[key] = value end
         end
@@ -106,6 +122,17 @@ function AP.CreateButton(parent, label, width)
     width = width or math.max(64, math.ceil((button:GetTextWidth() + 40) / 8) * 8)
     button:SetSize(width, 24)
     return button
+end
+
+-- SpinnerTemplate (Blizzard_SharedXML/Spinner.xml), the Auction House's own loading spinner, at the 24 px of a button
+-- row and hidden until work starts. It sits beside the button that started the work, 4 px off, as the housing
+-- bulletin board places one by its invite button (Blizzard_HousingBulletinBoard.xml:345-350). Its template plays and
+-- stops the animation on show and hide.
+function AP.CreateSpinner(parent)
+    local spinner = CreateFrame("Frame", nil, parent, "SpinnerTemplate")
+    spinner:SetSize(24, 24)
+    spinner:Hide()
+    return spinner
 end
 
 -- CheckboxWithLabelTemplate (Blizzard_SharedXML/Shared/Button/CheckButtonTemplates.xml:78), the minimal art Blizzard's

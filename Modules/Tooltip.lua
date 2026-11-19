@@ -72,13 +72,13 @@ local function addBlock(tooltip, itemLink)
     if average then
         addHeading(tooltip, "Auctionator", auctionatorAge(priceKey or averageKey))
         addRow(tooltip, "14-Day Average", money(average))
-        addRow(tooltip, "Now vs Average", AP.Trend.Colorize(AP.Trend.Percent(lastPrice, average), mode, days))
+        addRow(tooltip, "Now vs Average", AP.Trend.Colorize(AP.Trend.Percent(lastPrice, average), mode, days, itemLink))
     end
     if saleAverage or saleRate then
-        local built = AP.TSM.BuiltTime("regionSale")
+        local built = AP.TSM.BuiltTime()
         addHeading(tooltip, "TSM", built and AP.Age(built))
         addRow(tooltip, "Sale Average", money(saleAverage))
-        addRow(tooltip, "Now vs Sale Avg", AP.Trend.Colorize(AP.Trend.Percent(lastPrice, saleAverage), mode))
+        addRow(tooltip, "Now vs Sale Avg", AP.Trend.Colorize(AP.Trend.Percent(lastPrice, saleAverage), mode, nil, itemLink))
         addRow(tooltip, "Sale Rate", share(saleRate))
     end
 

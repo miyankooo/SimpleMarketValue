@@ -43,6 +43,7 @@ function frameMethods:SetSize(w, h) self.width, self.height = w, h end
 function frameMethods:SetWidth(w) self.width = w end
 function frameMethods:SetHeight(h) self.height = h end
 function frameMethods:GetWidth() return self.width or 0 end
+function frameMethods:GetParent() return self.owner end
 function frameMethods:GetHeight() return self.height or 0 end
 -- A CheckButton ticks or unticks itself before its OnClick runs, as the client does
 function frameMethods:Click(button)
@@ -143,22 +144,16 @@ unpack = unpack or table.unpack
 time = os.time
 
 local nextFrame = {}
--- Tickers run only when a test calls runTickers
-local tickers = {}
+-- Timers run only when a test fires one; each keeps its delay
+local timers = {}
 C_Timer = {
     After = function(_, fn) nextFrame[#nextFrame + 1] = fn end,
-    NewTimer = function() return { Cancel = function() end } end,
-    NewTicker = function(_, fn)
-        local ticker = { fn = fn, Cancel = function(self) self.cancelled = true end }
-        tickers[#tickers + 1] = ticker
-        return ticker
+    NewTimer = function(seconds, fn)
+        local timer = { seconds = seconds, fn = fn, Cancel = function(self) self.cancelled = true end }
+        timers[#timers + 1] = timer
+        return timer
     end,
 }
-local function runTickers()
-    for _, ticker in ipairs(tickers) do
-        if not ticker.cancelled then ticker.fn(ticker) end
-    end
-end
 local function runNextFrame()
     local queued = nextFrame
     nextFrame = {}
@@ -219,6 +214,12 @@ C_Item = {
     GetItemInfo = function(link) return "Worn Sword", link, 2 end,
 }
 C_AuctionHouse = { MakeItemKey = function(itemID) return { itemID = itemID } end }
+ScrollUtil = {
+    AddInitializedFrameCallback = function(scrollBox, callback, owner)
+        scrollBox.initialized = scrollBox.initialized or {}
+        table.insert(scrollBox.initialized, function(frame) callback(owner, frame) end)
+    end,
+}
 function FormatLargeNumber(n) return tostring(n) end
 function GetMoneyString(amount) return amount .. "c" end
 function IsModifiedClick() return false end
@@ -496,8 +497,7 @@ do
 end
 -- Within two seconds, since the clock may tick between writing the data and this check
 check("the region figures' age is when TSM built their block, not the app's last sync",
-    math.abs(AP.TSM.BuiltTime("regionSale") - (os.time() - 8 * 3600)) <= 2, AP.TSM.BuiltTime("regionSale"))
-check("TSM's own scan prices are not read", AP.TSM.BuiltTime("minBuyout") == nil)
+    math.abs(AP.TSM.BuiltTime() - (os.time() - 8 * 3600)) <= 2, AP.TSM.BuiltTime())
 check("this region's sale block is read, rate and daily sales in thousandths",
     AP.TSM.SaleAverage("item:25") == 140 and AP.TSM.SaleRate("item:25") == 0.779,
     tostring(AP.TSM.SaleAverage("item:25")) .. " " .. tostring(AP.TSM.SaleRate("item:25")))
@@ -512,7 +512,8 @@ setAppData(tsmValues)
 check("another ruleset reads none of these blocks", AP.TSM.SaleAverage("item:25") == nil)
 C_GameRules.IsGameRuleActive = gameRules
 setAppData(nil)
-check("without the app's data every figure is nil", AP.TSM.BuiltTime("regionSale") == nil and AP.TSM.SaleAverage("item:25") == nil)
+check("without the app's data every figure is nil", AP.TSM.BuiltTime() == nil and AP.TSM.SaleAverage("item:25") == nil
+    and not AP.TSM.HasSaleRates())
 setAppData(tsmValues)
 
 -- The AH frames Auctionator creates on first open
@@ -573,52 +574,88 @@ do
 end
 
 -- ===== Settings =====
--- The page is built at login, as its own canvas with Blizzard's settings slider on each row
+-- The page is built at login, as its own canvas with Blizzard's settings slider or checkbox on each row
 local sliders = templated.MinimalSliderWithSteppersTemplate or {}
-local sliderFor, labels, headers = {}, {}, {}
-for _, slider in ipairs(sliders) do sliderFor[slider.owner.label.text] = slider end
+local boxes = templated.SettingsCheckboxTemplate or {}
+local labels, headers = {}, {}
 for _, slider in ipairs(sliders) do labels[#labels + 1] = slider.owner.label.text end
 for _, text in ipairs(templated.GameFontHighlightLarge or {}) do headers[#headers + 1] = text.text end
 local function at(frame, point)
     local anchor = frame.points and frame.points[point] or {}
     return anchor[1], anchor[2], anchor[3], anchor[4]
 end
+-- In page order: the Sell Threshold, then a Deal Threshold, a Sale Rate and an Ignore Sale Rate for gear and for all
+-- other items
+local sellSlider, gearCut, gearRate, otherCut, otherRate = unpack(sliders)
+local gearIgnore, otherIgnore = unpack(boxes)
 
 check("the page is its own canvas named after the toc Title", canvas.frame ~= nil and canvas.name == "Simple Market Value", canvas.name)
-check("an intro opens the page", canvas.frame and canvas.frame.intro.text:find("^Shows every auction price as a percentage of its market value") ~= nil)
-check("six sliders and no checkbox", #sliders == 6 and templated.SettingsCheckboxTemplate == nil, #sliders)
-check("settings names in Title Case", table.concat(labels, ", ") == "Sell Threshold, Deal Threshold, Commodity Threshold, Commodity Sale Rate, Item Threshold, Item Sale Rate", table.concat(labels, ", "))
-check("Blizzard's section headers head the groups", table.concat(headers, ", ") == "Selling, Buying, Highlight Deals", table.concat(headers, ", "))
+check("an intro of two paragraphs opens the page", canvas.frame and canvas.frame.intro.text:find("^Shows every auction price as a percentage of its market value") ~= nil
+    and select(2, canvas.frame.intro.text:gsub("\n\n", "")) == 1)
+
+-- Settings saved by 2.6.0 and before: the per-kind ones carry over once, the old keys go
+do
+    local saved = SimpleMarketValueDB
+    SimpleMarketValueDB = { greatDealGearPct = 35, greatDealGearRatePct = 45, greatDealCommodityPct = 25,
+        greatDealCommodityRatePct = 70, dealThresholdPct = 30, greatDeals = false, sellThresholdPct = 40 }
+    local db = AP.DB()
+    check("2.6.0's thresholds, sale rates and Highlight Deals switch carry over to the new keys", db.gearDealPct == 35
+        and db.gearSaleRatePct == 45 and db.otherDealPct == 25 and db.otherSaleRatePct == 70 and db.highlightDeals == false
+        and db.sellThresholdPct == 40 and db.gearIgnoreSaleRate == false)
+    check("and the old keys are gone", db.greatDealGearPct == nil and db.greatDealCommodityRatePct == nil
+        and db.dealThresholdPct == nil and db.greatDeals == nil)
+    SimpleMarketValueDB = saved
+end
+check("five sliders and two checkboxes", #sliders == 5 and #boxes == 2, #sliders .. " " .. #boxes)
+check("settings names in Title Case", table.concat(labels, ", ") == "Sell Threshold, Deal Threshold, Sale Rate, Deal Threshold, Sale Rate"
+    and gearIgnore.owner.label.text == "Ignore Sale Rate" and otherIgnore.owner.label.text == "Ignore Sale Rate", table.concat(labels, ", "))
+check("Blizzard's section headers head the groups", table.concat(headers, " | ") == "Selling | Gear, Equipment and Weapons | All Other Items", table.concat(headers, " | "))
 local header = templated.GameFontHighlightLarge[1]
 local headerX, headerY = at(header, "TOPLEFT")
 check("a header is a 45 px slot with its title at 7, -16", header.owner.height == 45 and headerX == 7 and headerY == -16)
 check("the first header hangs under the intro", select(1, at(header.owner, "TOPLEFT")) == canvas.frame.intro)
-local relativeTo, relativePoint, x, y = at(sliderFor["Sell Threshold"], "LEFT")
-check("a slider starts at the row's CENTER -40, 3 up", relativeTo == sliderFor["Sell Threshold"].owner and relativePoint == "CENTER" and x == -40 and y == 3, tostring(x) .. " " .. tostring(y))
-check("labels start at 37", at(sliderFor["Deal Threshold"].owner.label, "LEFT") == 37)
-check("sliders start at the defaults with a step count", sliderFor["Sell Threshold"].value == 15 and sliderFor["Deal Threshold"].steps == 95, sliderFor["Deal Threshold"].steps)
-check("the label shows the value", sliderFor["Deal Threshold"].formatters[MinimalSliderWithSteppersMixin.Label.Right](20) == "-20%")
-check("every row and slider has a tooltip", sliderFor["Deal Threshold"].owner.scripts.OnEnter ~= nil and sliderFor["Deal Threshold"].Slider.scripts.OnEnter ~= nil)
-local saleRate, gearRate = sliderFor["Commodity Sale Rate"], sliderFor["Item Sale Rate"]
-local commodityCut, gearCut = sliderFor["Commodity Threshold"], sliderFor["Item Threshold"]
-check("the great deal sliders start at 20% under for both kinds, an 80% sale rate for commodities and 60% for items",
-    commodityCut.value == 20 and gearCut.value == 20 and saleRate.value == 80 and gearRate.value == 60
-        and saleRate.steps == 100 and saleRate.formatters[MinimalSliderWithSteppersMixin.Label.Right](60) == "60%")
-check("with the TSM app's sale rates both sale rate rows are usable", saleRate.enabled == true and saleRate.owner.label.color == "gold"
-    and gearRate.enabled == true and gearRate.owner.label.color == "gold")
+local relativeTo, relativePoint, x, y = at(sellSlider, "LEFT")
+check("a slider starts at the row's CENTER -40, 3 up", relativeTo == sellSlider.owner and relativePoint == "CENTER" and x == -40 and y == 3, tostring(x) .. " " .. tostring(y))
+relativeTo, relativePoint, x, y = at(gearIgnore, "LEFT")
+check("a checkbox starts at the same edge", relativeTo == gearIgnore.owner and relativePoint == "CENTER" and x == -40 and y == 0, tostring(x) .. " " .. tostring(y))
+check("labels start at 37", at(gearCut.owner.label, "LEFT") == 37 and at(gearIgnore.owner.label, "LEFT") == 37)
+check("sliders start at the defaults with a step count", sellSlider.value == 15 and gearCut.steps == 95, gearCut.steps)
+check("the label shows the value", gearCut.formatters[MinimalSliderWithSteppersMixin.Label.Right](20) == "-20%")
+check("every row and control has a tooltip", gearCut.owner.scripts.OnEnter ~= nil and gearCut.Slider.scripts.OnEnter ~= nil
+    and gearIgnore.owner.scripts.OnEnter ~= nil and type(gearIgnore.tooltipFunc) == "function")
+tooltipLines = {}
+gearIgnore.tooltipFunc()
+check("a checkbox's tooltip says what ticking it does", tooltipLines[1] == "# Ticked, deals on gear glow by their price alone, whatever TSM's sale rate.", tooltipLines[1])
+check("both kinds start 20% under, at a 60% sale rate for gear and 80% for all other items, the sale rate counted",
+    gearCut.value == 20 and otherCut.value == 20 and gearRate.value == 60 and otherRate.value == 80
+        and gearRate.steps == 100 and gearRate.formatters[MinimalSliderWithSteppersMixin.Label.Right](60) == "60%"
+        and gearIgnore.checked == false and otherIgnore.checked == false)
+check("with the TSM app's sale rates the Sale Rate and Ignore Sale Rate rows are usable", gearRate.enabled == true
+    and gearRate.owner.label.color == "gold" and otherRate.enabled == true and gearIgnore.enabled == true
+    and gearIgnore.owner.label.color == "gold" and otherIgnore.enabled == true)
 
 local repaint, repaints = AP.BagGlow.Repaint, 0
 AP.BagGlow.Repaint = function() repaints = repaints + 1 end
-sliderFor["Sell Threshold"]:SetValue(30)
-sliderFor["Deal Threshold"]:SetValue(40)
-commodityCut:SetValue(60)
-saleRate:SetValue(50)
-gearCut:SetValue(35)
+sellSlider:SetValue(30)
+gearCut:SetValue(40)
 gearRate:SetValue(45)
-check("a slider saves its value", AP.DB().sellThresholdPct == 30 and AP.DB().dealThresholdPct == 40
-    and AP.DB().greatDealCommodityPct == 60 and AP.DB().greatDealCommodityRatePct == 50
-    and AP.DB().greatDealGearPct == 35 and AP.DB().greatDealGearRatePct == 45)
+otherCut:SetValue(60)
+otherRate:SetValue(50)
+check("a slider saves its value", AP.DB().sellThresholdPct == 30 and AP.DB().gearDealPct == 40 and AP.DB().gearSaleRatePct == 45
+    and AP.DB().otherDealPct == 60 and AP.DB().otherSaleRatePct == 50)
 check("only the sell threshold repaints the bag glow", repaints == 1, repaints)
+
+local revision = AP.settingsRevision
+gearIgnore:Click()
+check("ticking Ignore Sale Rate saves it with the checkbox sound and greys out its own Sale Rate row alone",
+    AP.DB().gearIgnoreSaleRate == true and gearIgnore.checked and sounds[#sounds] == SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON
+    and AP.settingsRevision > revision and gearRate.enabled == false and gearRate.owner.label.color == "gray"
+    and otherRate.enabled == true)
+otherIgnore.owner.scripts.OnMouseUp(otherIgnore.owner)
+check("a click on its row ticks it too", AP.DB().otherIgnoreSaleRate == true and otherIgnore.checked and otherRate.enabled == false)
+gearIgnore:Click()
+check("unticked, its Sale Rate row is usable again, with the checkbox sound", AP.DB().gearIgnoreSaleRate == false
+    and sounds[#sounds] == SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF and gearRate.enabled == true and gearRate.owner.label.color == "gold")
 
 local defaults
 for _, button in ipairs(templated.UIPanelButtonTemplate or {}) do
@@ -626,23 +663,26 @@ for _, button in ipairs(templated.UIPanelButtonTemplate or {}) do
 end
 repaints = 0
 defaults:Click()
-check("Defaults restores every setting", AP.DB().sellThresholdPct == 15 and AP.DB().dealThresholdPct == 20 and sliderFor["Sell Threshold"].value == 15 and sliderFor["Deal Threshold"].value == 20
-    and AP.DB().greatDealCommodityPct == 20 and AP.DB().greatDealCommodityRatePct == 80 and AP.DB().greatDealGearPct == 20
-    and AP.DB().greatDealGearRatePct == 60 and commodityCut.value == 20 and saleRate.value == 80 and gearCut.value == 20 and gearRate.value == 60)
+local db = AP.DB()
+check("Defaults restores every setting", db.sellThresholdPct == 15 and db.gearDealPct == 20 and db.gearSaleRatePct == 60
+    and db.otherDealPct == 20 and db.otherSaleRatePct == 80 and db.gearIgnoreSaleRate == false and db.otherIgnoreSaleRate == false
+    and sellSlider.value == 15 and gearCut.value == 20 and gearRate.value == 60 and otherCut.value == 20 and otherRate.value == 80
+    and not otherIgnore.checked and otherRate.enabled == true and otherRate.owner.label.color == "gold")
 check("Defaults repaints the bag glow", repaints > 0)
 AP.BagGlow.Repaint = repaint
 
--- Without them, a page built at the next login greys the sale rate row out
+-- Without them, a page built at the next login greys out the Sale Rate and Ignore Sale Rate rows
 do
     setAppData(nil)
-    local before, loginCallbacks = #sliders, #loggedIn
+    local before, beforeBoxes, loginCallbacks = #sliders, #boxes, #loggedIn
     assert(loadfile("UI/Settings.lua"))("SimpleMarketValue", AP)
     for index = loginCallbacks + 1, #loggedIn do loggedIn[index]() end
-    local built = templated.MinimalSliderWithSteppersTemplate
-    local commodity, gear = built[before + 4], built[before + 6]
-    check("without them both sale rate rows grey out, the thresholds stay", commodity.owner.label.text == "Commodity Sale Rate"
-        and commodity.enabled == false and commodity.owner.label.color == "gray" and gear.owner.label.text == "Item Sale Rate"
-        and gear.enabled == false and built[before + 3].enabled == nil and built[before + 5].enabled == nil)
+    local built, builtBoxes = templated.MinimalSliderWithSteppersTemplate, templated.SettingsCheckboxTemplate
+    local gear, other = built[before + 3], built[before + 5]
+    check("without them the Sale Rate and Ignore Sale Rate rows grey out, the thresholds stay", gear.owner.label.text == "Sale Rate"
+        and gear.enabled == false and gear.owner.label.color == "gray" and other.enabled == false
+        and builtBoxes[beforeBoxes + 1].enabled == false and builtBoxes[beforeBoxes + 2].owner.label.color == "gray"
+        and built[before + 2].enabled == nil and built[before + 4].enabled == nil)
     setAppData(tsmValues)
 end
 
@@ -773,7 +813,7 @@ check("without TSM the tooltip shows the Auctionator block alone", text:find("TS
 setAppData(tsmValues)
 
 -- ===== Colour scale =====
--- Green from the glow threshold on the good side (Deal Threshold 20 for a buyer, Sell Threshold 15 for a seller), red
+-- Green from the glow threshold on the good side (the kind's Deal Threshold 20 for a buyer, Sell Threshold 15 for a seller), red
 -- as far on the bad side, yellow in between, grey on thin history
 local function scale(pct, mode, days) return AP.Trend.Colorize(pct, mode, days) end
 local buyer, seller = AP.Trend.UP_RED, AP.Trend.UP_GREEN
@@ -784,9 +824,12 @@ local sellerScale = table.concat({ scale(15, seller), scale(14, seller), scale(-
 check("a seller's scale: green from the Sell Threshold over, red as far under, yellow between",
     sellerScale == "<green>+15%</> <yellow>+14%</> <yellow>-14%</> <red>-15%</>", sellerScale)
 check("thin history stays grey", scale(-50, buyer, 2) == "<gray>-50%</>", scale(-50, buyer, 2))
-AP.DB().dealThresholdPct = 5
-check("the scale follows the threshold setting", scale(-7, buyer) == "<green>-7%</>" and scale(7, buyer) == "<red>+7%</>", scale(-7, buyer))
-AP.DB().dealThresholdPct = 20
+AP.DB().otherDealPct = 5
+check("the scale follows the Deal Threshold of all other items", scale(-7, buyer) == "<green>-7%</>" and scale(7, buyer) == "<red>+7%</>", scale(-7, buyer))
+check("gear goes by its own", AP.Trend.Colorize(-7, buyer, nil, "item:25") == "<yellow>-7%</>", AP.Trend.Colorize(-7, buyer, nil, "item:25"))
+AP.DB().gearDealPct = 5
+check("and follows it", AP.Trend.Colorize(-7, buyer, nil, "item:25") == "<green>-7%</>", AP.Trend.Colorize(-7, buyer, nil, "item:25"))
+AP.DB().otherDealPct, AP.DB().gearDealPct = 20, 20
 
 -- ===== Average price =====
 -- TSM's day weights: 132 today, 125 a day ago, 100 two days ago, so (132 * 100 + 125 * 200 + 100 * 400) / 357
@@ -868,28 +911,36 @@ check("before any full scan its tooltip says so, with no wait", normalLines[2] =
 Auctionator.SavedState = { TimeOfLastReplicateScan = os.time() - 300 }
 fullScan:Hide()
 fullScan:Show()
-check("while Blizzard holds the next scan back, Full Scan greys out with the minutes left", not fullScan:IsEnabled() and fullScan.text == "Full Scan 10m", fullScan.text)
+local waitTimer = timers[#timers]
+check("while Blizzard holds the next scan back, Full Scan greys out, its label plain", not fullScan:IsEnabled() and fullScan.text == "Full Scan", fullScan.text)
 normalLines, errorLines = scanTooltip()
 check("and its tooltip names the wait in red", errorLines[1] == "Next full scan in 10 |4minute:minutes;.", errorLines[1])
-local waitTicker = tickers[#tickers]
-Auctionator.SavedState.TimeOfLastReplicateScan = os.time() - 841
-runTickers()
-check("the countdown follows the clock", fullScan.text == "Full Scan 1m" and not fullScan:IsEnabled(), fullScan.text)
+check("one timer waits out the 10 minutes left", waitTimer and math.abs(waitTimer.seconds - 600) <= 1 and not waitTimer.cancelled, waitTimer and waitTimer.seconds)
 Auctionator.SavedState.TimeOfLastReplicateScan = os.time() - 900
-runTickers()
-check("once the wait is over it is ready again and the countdown stops", fullScan:IsEnabled() and fullScan.text == "Full Scan"
-    and waitTicker.cancelled == true, fullScan.text)
+waitTimer.fn()
+check("then it is ready again", fullScan:IsEnabled() and fullScan.text == "Full Scan", fullScan.text)
 Auctionator.SavedState.TimeOfLastReplicateScan = os.time() - 60
 fullScan:Hide()
-check("a hidden button counts nothing down", tickers[#tickers].cancelled == true)
+fullScan:Show()
+local hiddenTimer = timers[#timers]
+fullScan:Hide()
+check("a hidden button waits on no timer", hiddenTimer.cancelled == true)
 Auctionator.SavedState = nil
 fullScan:Show()
 
+local spinner = select(2, AP.FullScanButton.Button())
+local spinnerAt = spinner and spinner.points.LEFT
+check("Blizzard's spinner sits 4 px right of Full Scan, 24 px and hidden", spinner and spinner.template == "SpinnerTemplate"
+    and spinner.owner == fullScan and spinner.width == 24 and spinner.height == 24 and not spinner.shown
+    and spinnerAt[1] == fullScan and spinnerAt[2] == "RIGHT" and spinnerAt[3] == 4)
 Auctionator.EventBus:Fire(nil, "ScanStart")
-Auctionator.EventBus:Fire(nil, "ScanProgress", 0.42)
-check("label shows the scan progress", fullScan.text == "Full Scan 42%", fullScan.text)
+check("a scan's start turns the spinner and leaves the label alone", spinner.shown and fullScan.text == "Full Scan")
+Auctionator.EventBus:Fire(nil, "ScanFailed")
+check("a failed scan stops it", not spinner.shown)
+Auctionator.EventBus:Fire(nil, "replicate_scan_start")
+check("so does Auctionator's replicate scan", spinner.shown)
 Auctionator.EventBus:Fire(nil, "replicate_scan_complete")
-check("a finished scan shows green 100%", fullScan.text == "<green>Full Scan 100%</>", fullScan.text)
+check("a finished full scan stops it, the label still plain", not spinner.shown and fullScan.text == "Full Scan")
 normalLines = scanTooltip()
 check("and its tooltip says how long ago the last full scan finished", normalLines[2] == "Last full scan: 1m ago.", normalLines[2])
 
@@ -1061,6 +1112,18 @@ saleItem.itemInfo = nil
 saleItem:Update()
 check("Sale Scan enabled again after the slot clears", scanButton:IsEnabled())
 
+local saleSpinner = upvalue(AP.SaleScan.Ensure, "spinner")
+local saleSpinnerAt = saleSpinner and saleSpinner.points.RIGHT
+check("Blizzard's spinner waits 4 px left of Sale Scan, hidden", saleSpinner and saleSpinner.template == "SpinnerTemplate"
+    and not saleSpinner.shown and saleSpinnerAt[1] == scanButton and saleSpinnerAt[2] == "LEFT" and saleSpinnerAt[3] == -4)
+AuctionatorSellingFrame.BagListing = { View = { itemMap = { { { itemInfo = { itemID = 25, classID = 2, itemLink = "item:25" } } } } } }
+Auctionator.AH.SendSellSearchQueryByItemKey = function() end
+scanButton:Click()
+check("a scan turns it, the label plain", saleSpinner.shown and scanButton.text == "Sale Scan", scanButton.text)
+scanButton:Click()
+check("a second click cancels the scan and stops it", not saleSpinner.shown and scanButton.text == "Sale Scan")
+AuctionatorSellingFrame.BagListing, Auctionator.AH.SendSellSearchQueryByItemKey = nil, nil
+
 -- ===== Bag glow =====
 -- An item whose last price sits the sell threshold above its average takes the bags' green glow on its icon
 local bagButton = CreateFrame("Button")
@@ -1201,41 +1264,51 @@ update()
 check("the column follows the row's new cells", anchor(cheap.fontString, "RIGHT") == cheap.cells[3] and cheap.fontString.text == "<green>-50%</>")
 
 -- ===== Highlight Deals =====
--- These checks set 50% under and an 80% sale rate, so a 78% sale rate and a price 30% under fall short of a great
--- deal, while the Deal Threshold of 20% still makes them deals. Item 25 is a sword, so an item, and both kinds start
--- equal. Deals glow green, great deals gold while the box is ticked
-local function setGreatDeals(commodityPct, gearPct, commodityRate, gearRate)
+-- A deal is at least its kind's Deal Threshold under the market value and, with TSM's sale rates, sells at least its
+-- kind's Sale Rate unless the kind ignores it. Item 25 is a sword, so gear, and TSM sees it sell 78% of the time.
+-- Deals glow green while the box is ticked
+local function setDeals(gearPct, gearRate, otherPct, otherRate)
     local db = AP.DB()
-    db.greatDealCommodityPct, db.greatDealGearPct, db.greatDealCommodityRatePct, db.greatDealGearRatePct = commodityPct, gearPct, commodityRate, gearRate
+    db.gearDealPct, db.gearSaleRatePct, db.otherDealPct, db.otherSaleRatePct = gearPct, gearRate, otherPct, otherRate
     AP.SettingsChanged()
 end
-setGreatDeals(50, 50, 80, 80)
+local function saleRate(permille)
+    tsmValues.regionSalePercent = permille
+    setAppData(tsmValues)
+end
+local function isDeal(price, itemRef)
+    runNextFrame()
+    local _, pct, trusted = AP.Trend.Relative(price, itemRef or "item:25", AP.Trend.UP_RED)
+    return AP.Trend.IsDeal(pct, trusted, itemRef or "item:25")
+end
+setDeals(20, 60, 20, 80)
 -- An Auctionator listing stand-in: rows on a ScrollBox under ScrollArea, as AuctionatorResultsListingTemplate has them
 local function listing(rows)
     local frame = CreateFrame("Frame")
     frame.ScrollArea = { ScrollBox = { ForEachFrame = function(_, fn) for _, r in ipairs(rows) do fn(r) end end } }
     return frame
 end
-local shoppingRows = { row({ apGreatDeal = true, apDeal = true }), row({}), row({ apDeal = true }) }
+local shoppingRows = { row({ apDeal = true }), row({}), row({ apDeal = true }) }
 AuctionatorShoppingFrame.ResultsListing = listing(shoppingRows)
-local listingPainters = {}
-CreateFrame = function(kind, name, parent, template)
-    local frame = createFrame(kind, name, parent, template)
-    if parent == AuctionatorShoppingFrame.ResultsListing then listingPainters[#listingPainters + 1] = frame end
-    return frame
+local ready = AP.HighlightDeals.Ensure()
+local shoppingBox = AuctionatorShoppingFrame.ResultsListing.ScrollArea.ScrollBox
+-- Auctionator's listing shows its results anew: the scroll box lays out every row, then the listing's update returns
+local function paintShopping()
+    for _, r in ipairs(shoppingRows) do
+        for _, callback in ipairs(shoppingBox.initialized or {}) do callback(r) end
+    end
+    AuctionatorShoppingFrame.ResultsListing:UpdateTable()
 end
-local ready = AP.GreatDeals.Ensure()
-CreateFrame = createFrame
-local function paintShopping() for _, p in ipairs(listingPainters) do p.scripts.OnUpdate(p) end end
 local function glowOf(r) return r.texture and r.texture.shown and r.texture.vertex or nil end
 
-local greatBox = upvalue(AP.GreatDeals.Ensure, "checkbox")
+local greatBox = upvalue(AP.HighlightDeals.Ensure, "checkbox")
 local left = greatBox and greatBox.points.LEFT
-check("Highlight Deals is a checkbox right of Full Scan", greatBox and greatBox.template == "CheckboxWithLabelTemplate"
-    and greatBox.Text.text == "Highlight Deals" and greatBox.width == 24
-    and left[1] == fullScan and left[2] == "RIGHT" and left[3] == 8)
-check("it waits for Auctionator's buy screens, with a painter on the shopping results", not ready and #listingPainters == 1)
-check("it starts ticked and enabled for a player who never chose", AP.GreatDeals.IsOn() and greatBox:IsEnabled() and greatBox:GetChecked())
+check("Highlight Deals is a checkbox after Full Scan's spinner", greatBox and greatBox.template == "CheckboxWithLabelTemplate"
+    and greatBox.Text.text == "Highlight Deals" and greatBox.width == 24 and greatBox.owner == fullScan:GetParent()
+    and left[1] == spinner and left[2] == "RIGHT" and left[3] == 8)
+check("it waits for Auctionator's buy screens, painting the shopping rows as their scroll box lays them out", not ready
+    and #shoppingBox.initialized == 1)
+check("it starts ticked and enabled for a player who never chose", AP.HighlightDeals.IsOn() and greatBox:IsEnabled() and greatBox:GetChecked())
 local instruction, errorLine
 local addInstruction, addError = GameTooltip_AddInstructionLine, GameTooltip_AddErrorLine
 GameTooltip_AddInstructionLine = function(_, text) instruction = text end
@@ -1243,13 +1316,13 @@ GameTooltip_AddErrorLine = function(_, text) errorLine = text end
 greatBox.scripts.OnEnter(greatBox)
 check("its tooltip explains it, with no click line beside the tick", instruction == nil and errorLine == nil, instruction)
 paintShopping()
-check("ticked, a great deal glows gold in Auctionator's results, a deal green, a row with neither not at all",
-    glowOf(shoppingRows[1]) == "gold" and glowOf(shoppingRows[3]) == "green" and shoppingRows[2].texture == nil, glowOf(shoppingRows[1]))
+check("ticked, deals glow green in Auctionator's results, a row without one not at all",
+    glowOf(shoppingRows[1]) == "green" and glowOf(shoppingRows[3]) == "green" and shoppingRows[2].texture == nil, glowOf(shoppingRows[1]))
 check("without results the label has no count", greatBox.Text.text == "Highlight Deals", greatBox.Text.text)
-AuctionatorShoppingFrame.DataProvider.results = { { apGreatDeal = true }, {}, { apGreatDeal = true, apDeal = true } }
+AuctionatorShoppingFrame.DataProvider.results = { { apDeal = true }, {}, { apDeal = true } }
 paintShopping()
-check("with results it counts their great deals, ticked or not", greatBox.Text.text == "Highlight Deals (2)", greatBox.Text.text)
-table.insert(AuctionatorShoppingFrame.DataProvider.results, { apGreatDeal = true })
+check("with results it counts their deals, ticked or not", greatBox.Text.text == "Highlight Deals (2)", greatBox.Text.text)
+table.insert(AuctionatorShoppingFrame.DataProvider.results, { apDeal = true })
 paintShopping()
 check("and follows results coming in", greatBox.Text.text == "Highlight Deals (3)", greatBox.Text.text)
 AuctionatorShoppingFrame.DataProvider.results = {}
@@ -1257,91 +1330,111 @@ paintShopping()
 check("a new search starts it over", greatBox.Text.text == "Highlight Deals", greatBox.Text.text)
 
 greatBox:Click()
-check("a click unticks it, saved, with the checkbox sound", AP.DB().greatDeals == false and not AP.GreatDeals.IsOn()
+check("a click unticks it, saved, with the checkbox sound", AP.DB().highlightDeals == false and not AP.HighlightDeals.IsOn()
     and not greatBox:GetChecked() and sounds[#sounds] == SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
 paintShopping()
 check("unticked, no row in Auctionator's results glows", not glowOf(shoppingRows[1]) and not glowOf(shoppingRows[3]))
 update()
 check("nor in Blizzard's lists", not glowOf(cheap), glowOf(cheap))
 greatBox:Click()
-check("a second click ticks it again, with the checkbox sound", AP.DB().greatDeals == true and AP.GreatDeals.IsOn()
+check("a second click ticks it again, with the checkbox sound", AP.DB().highlightDeals == true and AP.HighlightDeals.IsOn()
     and greatBox:GetChecked() and sounds[#sounds] == SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 paintShopping()
-check("on, a great deal turns gold in Auctionator's results and a deal stays green", glowOf(shoppingRows[1]) == "gold"
-    and glowOf(shoppingRows[3]) == "green" and shoppingRows[1].texture.atlas == "auctionhouse-ui-row-highlight", glowOf(shoppingRows[1]))
+check("on, deals glow again in Auctionator's results", glowOf(shoppingRows[1]) == "green"
+    and shoppingRows[1].texture.atlas == "auctionhouse-ui-row-highlight", glowOf(shoppingRows[1]))
 update()
-check("a cheap item TSM sees sell 78% of the time stays a green deal in Blizzard's lists", glowOf(cheap) == "green", glowOf(cheap))
+check("a cheap sword TSM sees sell 78% of the time is a deal in Blizzard's lists at gear's 60% Sale Rate", glowOf(cheap) == "green", glowOf(cheap))
 
--- The same price on an item that sells 80% of the time
-tsmValues.regionSalePercent = 800
-setAppData(tsmValues)
--- 70 is half of TSM's sale average 140, but only 30% under Auctionator's 14-day average 100
-cheap.rowData = { itemKey = { itemID = 25 }, buyoutAmount = 70 }
-update()
-check("with TSM, half its sale average is a great deal however near Auctionator's own average", glowOf(cheap) == "gold", glowOf(cheap))
-historyDays = 2
-runNextFrame()
-check("and Auctionator's history plays no part", AP.Trend.IsGreatDeal(70, "item:25"))
-historyDays = 3
-runNextFrame()
-setAppData(nil)
-check("with Auctionator alone half the 14-day average is a great deal, with no sale rate asked",
-    AP.Trend.IsGreatDeal(50, "item:25") and not AP.Trend.IsGreatDeal(70, "item:25"))
-historyDays = 2
-runNextFrame()
-check("but never on a thin history", not AP.Trend.IsGreatDeal(10, "item:25"))
-historyDays = 3
-runNextFrame()
-setAppData(tsmValues)
+-- An item that rarely sells is no deal however cheap
 cheap.rowData = { itemKey = { itemID = 25 }, buyoutAmount = 50 }
+saleRate(50)
 update()
-check("half of both averages and an 80% sale rate glows gold, a row past no threshold not at all", glowOf(cheap) == "gold" and dear.texture == nil)
-AP.DB().greatDealGearPct = 70
+check("an item TSM sees sell 5% of the time never glows, though its percentage stays green", not glowOf(cheap)
+    and cheap.fontString.text == "<green>-64%</>", cheap.fontString.text)
+AP.DB().gearIgnoreSaleRate = true
 AP.SettingsChanged()
 update()
-check("a higher Item Threshold repaints the row at once, a green deal again", glowOf(cheap) == "green", glowOf(cheap))
-AP.DB().greatDealGearPct = 40
-check("a lower one takes in what 50% passed over", AP.Trend.IsGreatDeal(80, "item:25") and not AP.Trend.IsGreatDeal(90, "item:25"))
-AP.DB().greatDealGearPct, AP.DB().greatDealGearRatePct = 50, 81
+check("with gear's Ignore Sale Rate ticked it glows by its price alone", glowOf(cheap) == "green", glowOf(cheap))
+AP.DB().gearIgnoreSaleRate = false
 AP.SettingsChanged()
 update()
-check("a higher Item Sale Rate repaints the row at once", glowOf(cheap) == "green", glowOf(cheap))
-AP.DB().greatDealGearRatePct = 80
-AP.SettingsChanged()
-update()
-check("and the old one lights it gold again", glowOf(cheap) == "gold", glowOf(cheap))
-AP.DB().greatDealCommodityRatePct = 99
-AP.SettingsChanged()
-update()
-check("an item goes by the Item Sale Rate alone", glowOf(cheap) == "gold", glowOf(cheap))
+check("unticked it goes dark again", not glowOf(cheap), glowOf(cheap))
+saleRate(600)
+check("gear that sells 60% of the time meets gear's 60% Sale Rate", isDeal(50))
+saleRate(594)
+check("59% falls short", not isDeal(50))
+saleRate(0)
+check("gear TSM never sees sell is no deal", not isDeal(50))
+
+-- All other items go by their own settings
 local itemInfo = C_Item.GetItemInfoInstant
 C_Item.GetItemInfoInstant = function() return 25, nil, nil, "", nil, 7, 5 end
-check("anything else goes by the Commodity Sale Rate", not AP.Trend.IsGreatDeal(50, "item:25") and not AP.Trend.IsGreatDeal(50, { itemID = 25 }))
-AP.DB().greatDealCommodityRatePct = 80
-check("and lights at it", AP.Trend.IsGreatDeal(50, "item:25"))
-AP.DB().greatDealGearPct = 90
-check("by the Commodity Threshold, whatever the Item Threshold", AP.Trend.IsGreatDeal(50, "item:25"))
-AP.DB().greatDealCommodityPct = 70
-check("and not past it", not AP.Trend.IsGreatDeal(50, "item:25"))
-setGreatDeals(50, 50, 80, 80)
+saleRate(700)
+check("all other items go by their own Sale Rate, where 70% falls short of 80%", not isDeal(50) and not isDeal(50, { itemID = 25 }))
+AP.DB().otherSaleRatePct = 70
+check("and is a deal at 70%", isDeal(50))
+AP.DB().otherDealPct, AP.DB().gearDealPct = 70, 5
+check("by their own Deal Threshold, whatever gear's", not isDeal(50))
+AP.DB().otherDealPct = 60
+saleRate(50)
+AP.DB().otherIgnoreSaleRate = true
+check("their own Ignore Sale Rate lets one that rarely sells through", isDeal(50))
 C_Item.GetItemInfoInstant = itemInfo
+check("while gear still asks for its Sale Rate", not isDeal(50))
+AP.DB().otherIgnoreSaleRate = false
+setDeals(20, 60, 20, 80)
 
--- Auctionator's rows carry both marks: 50 is a great deal, 80 (-43%) a deal, 130 (-7%) neither
+-- The market value behind a deal
+saleRate(800)
+historyDays = 2
+check("with TSM a deal needs no Auctionator history", isDeal(70))
+historyDays = 3
+setAppData(nil)
+check("with Auctionator alone 30% under its 14-day average is a deal, with no sale rate asked", isDeal(70) and not isDeal(90))
+historyDays = 2
+check("but never on a thin history", not isDeal(10))
+historyDays = 3
+runNextFrame()
+setAppData(tsmValues)
+
+-- A changed setting repaints Blizzard's rows at once
+cheap.rowData = { itemKey = { itemID = 25 }, buyoutAmount = 50 }
+update()
+check("a deal glows, a row past no threshold not at all", glowOf(cheap) == "green" and dear.texture == nil, glowOf(cheap))
+AP.DB().gearDealPct = 70
+AP.SettingsChanged()
+update()
+check("a higher Deal Threshold repaints the row at once", not glowOf(cheap), glowOf(cheap))
+AP.DB().gearDealPct = 20
+AP.SettingsChanged()
+update()
+check("and the old one lights it again", glowOf(cheap) == "green", glowOf(cheap))
+AP.DB().gearSaleRatePct = 81
+AP.SettingsChanged()
+update()
+check("so does a higher Sale Rate", not glowOf(cheap), glowOf(cheap))
+setDeals(20, 60, 20, 80)
+
+-- Auctionator's rows carry the mark: 50 (-64%) and 80 (-43%) are deals, 130 (-7%) none
 local shopped = { { itemKey = { itemID = 25 }, minPrice = 50 }, { itemKey = { itemID = 25 }, minPrice = 80 }, { itemKey = { itemID = 25 }, minPrice = 130 } }
 runNextFrame()
 AuctionatorShoppingTabDataProviderMixin.PrettifyData(nil, shopped)
-check("Auctionator's shopping rows mark deals and great deals", shopped[1].apGreatDeal == true and shopped[1].apDeal == true
-    and not shopped[2].apGreatDeal and shopped[2].apDeal == true and shopped[3].apDeal == nil and shopped[3].apGreatDeal == nil)
+check("Auctionator's shopping rows mark deals", shopped[1].apDeal == true and shopped[2].apDeal == true and shopped[3].apDeal == nil)
+saleRate(50)
+runNextFrame()
+AuctionatorShoppingTabDataProviderMixin.PrettifyData(nil, shopped)
+check("and no row of an item that rarely sells", shopped[1].apDeal == nil and shopped[2].apDeal == nil)
+saleRate(800)
 local sold = { { itemKey = { itemID = 25 }, price = 50 } }
 AuctionatorSearchDataProviderMixin.AppendEntries(nil, sold)
-check("a seller's list marks none", sold[1].apGreatDeal == nil and sold[1].apDeal == nil)
+check("a seller's list marks none", sold[1].apDeal == nil)
 
 -- A changed setting works Auctionator's rows out again and redraws them, so nobody has to search again
 local provider = { results = { { itemKey = { itemID = 25 }, minPrice = 80 } }, SetDirty = function(self) self.dirty = true end }
 runNextFrame()
 AuctionatorShoppingTabDataProviderMixin.PrettifyData(provider, provider.results)
-check("a row 43% under is a deal at the 20% Deal Threshold", provider.results[1].apDeal == true and provider.results[1].apTrendText == "<green>-43%</>")
-AP.DB().dealThresholdPct = 50
+check("a row 43% under is a deal at gear's 20% Deal Threshold", provider.results[1].apDeal == true and provider.results[1].apTrendText == "<green>-43%</>")
+AP.DB().gearDealPct = 50
 runNextFrame()
 AP.SettingsChanged()
 check("the rows wait for the setting to rest", provider.results[1].apDeal == true and not provider.dirty)
@@ -1349,42 +1442,44 @@ AP.SettingsChanged()
 runNextFrame()
 check("at a 50% Deal Threshold the same row is no deal, its colour changes and its listing redraws", provider.results[1].apDeal == nil
     and provider.results[1].apTrendText == "<yellow>-43%</>" and provider.dirty == true, provider.results[1].apTrendText)
-AP.DB().dealThresholdPct = 20
+AP.DB().gearDealPct = 20
 AP.SettingsChanged()
 
 AuctionatorBuyItemFrame = CreateFrame("Frame")
 AuctionatorBuyItemFrame.ResultsListing = listing({})
 AuctionatorBuyCommodityFrame = CreateFrame("Frame")
 AuctionatorBuyCommodityFrame.ResultsListing = listing({})
-check("ready once Auctionator's buy screens exist", AP.GreatDeals.Ensure() == true)
+check("ready once Auctionator's buy screens exist", AP.HighlightDeals.Ensure() == true)
 
 local function boxTooltip()
     tooltipLines = {}
     greatBox.scripts.OnEnter(greatBox)
     return tooltipLines[1]
 end
-check("with TSM its tooltip names the green deals, the gold great deals with TSM's sale average and rates, and the count",
-    boxTooltip() == "# Ticked, deals past your Deal Threshold glow green in every buy list and great deals gold: "
-    .. "commodities priced at least 50% below TSM's sale average that TSM sees sell at least 80% of the time, "
-    .. "and items at least 50% below that sell at least 80% of the time. "
-    .. "The number counts the great deals in these results. Type /smv to change the thresholds.", boxTooltip())
-setGreatDeals(40, 30, 60, 45)
-check("and the thresholds as set", boxTooltip():find("commodities priced at least 40% below TSM's sale average that TSM sees sell at least "
-    .. "60% of the time, and items at least 30% below that sell at least 45% of the time", 1, true) ~= nil, boxTooltip())
-setGreatDeals(50, 50, 80, 80)
+check("with TSM its tooltip names each kind's Deal Threshold under TSM's sale average and its Sale Rate, and the count",
+    boxTooltip() == "# Ticked, deals glow green in every buy list: gear at least 20% below TSM's sale average that TSM "
+    .. "sees sell at least 60% of the time, and all other items at least 20% below it that TSM sees sell at least 80% of "
+    .. "the time. The number counts the deals in these results. Type /smv to change the thresholds.", boxTooltip())
+setDeals(30, 45, 40, 70)
+check("and the thresholds as set", boxTooltip():find("gear at least 30% below TSM's sale average that TSM sees sell at least "
+    .. "45% of the time, and all other items at least 40% below it that TSM sees sell at least 70% of the time", 1, true) ~= nil, boxTooltip())
+AP.DB().otherIgnoreSaleRate = true
+check("a kind that ignores its Sale Rate names none", boxTooltip():find("and all other items at least 40% below it. The number", 1, true) ~= nil, boxTooltip())
+AP.DB().otherIgnoreSaleRate = false
+setDeals(20, 60, 20, 80)
 setAppData(nil)
-check("with Auctionator alone it stays on and usable", AP.GreatDeals.IsOn() and greatBox:IsEnabled() and errorLine == nil)
-check("and its tooltip names Auctionator's average alone", boxTooltip() == "# Ticked, deals past your Deal Threshold glow green in every "
-    .. "buy list and great deals gold: commodities priced at least 50% and items at least 50% below Auctionator's 14-day average. "
-    .. "The number counts the great deals in these results. Type /smv to change the thresholds.", boxTooltip())
+check("with Auctionator alone it stays on and usable", AP.HighlightDeals.IsOn() and greatBox:IsEnabled() and errorLine == nil)
+check("and its tooltip names Auctionator's average and no sale rate", boxTooltip() == "# Ticked, deals glow green in every buy "
+    .. "list: gear at least 20% below Auctionator's 14-day average, and all other items at least 20% below it. "
+    .. "The number counts the deals in these results. Type /smv to change the thresholds.", boxTooltip())
 cheap.rowData, dear.rowData = { itemKey = { itemID = 25 }, buyoutAmount = 50 }, { itemKey = { itemID = 25 }, buyoutAmount = 70 }
 runNextFrame()
 update()
-check("Blizzard's lists then glow half-price rows gold and 30% under green", glowOf(cheap) == "gold" and glowOf(dear) == "green", glowOf(dear))
+check("Blizzard's lists then glow rows 30% and more under Auctionator's average", glowOf(cheap) == "green" and glowOf(dear) == "green", glowOf(dear))
 setAppData(tsmValues)
 
 greatBox:Click()
-check("a third click unticks it", AP.DB().greatDeals == false and not greatBox:GetChecked()
+check("a third click unticks it", AP.DB().highlightDeals == false and not greatBox:GetChecked()
     and sounds[#sounds] == SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
 paintShopping()
 check("off again, Auctionator's rows stop glowing", not glowOf(shoppingRows[1]) and not glowOf(shoppingRows[3]), glowOf(shoppingRows[1]))

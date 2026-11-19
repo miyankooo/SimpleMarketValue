@@ -1,26 +1,20 @@
 local _, AP = ...
 
 -- "Full Scan" on Auctionator's Shopping tab: starts Auctionator's replicate full scan, which reads every listing the
--- scan prices need, shows the scan's progress in its label, and while Blizzard holds the next scan back, greys out
--- with the minutes left. Its tooltip says when the last full scan on the realm finished
+-- scan prices need. Blizzard's spinner turns beside it while a scan runs, and Auctionator says in chat when one starts,
+-- fails and finishes. While Blizzard holds the next scan back it greys out, and its tooltip says for how long and when
+-- the last full scan on the realm finished
 AP.FullScanButton = {}
 
 local BUTTON_LABEL = "Full Scan"
 
--- Fixed, so the progress label never resizes the button
-local BUTTON_WIDTH = 112
-
--- How long the final percentage stays before the label returns to Full Scan
-local RESULT_SECONDS = 2
-
 -- The first step for a new player: prices before any percentage can show
 local TIP_TEXT = "Click Full Scan to load today's prices for every percentage and average."
 
-local scanButton, resetTimer, showTip, waitTicker
-local lastPercent = 0
+local scanButton, spinner, showTip, waitTimer
 
--- True while a scan runs or its result shows, when the label belongs to the scan
-local busy = false
+-- True from a scan's start to its end, also for a scan that started before the button was made
+local scanning = false
 
 -- When each realm's last full scan finished, as time()
 local function lastScans()
@@ -34,64 +28,24 @@ local function minutesOf(seconds)
     return math.ceil(seconds / 60)
 end
 
-local function setLabel(text)
-    if scanButton then scanButton:SetText(text) end
-end
-
-local function cancelReset()
-    if resetTimer then
-        resetTimer:Cancel()
-        resetTimer = nil
-    end
-end
-
-local function percentLabel(percent)
-    return ("%s %d%%"):format(BUTTON_LABEL, percent)
-end
-
 local function stopWaiting()
-    if waitTicker then
-        waitTicker:Cancel()
-        waitTicker = nil
+    if waitTimer then
+        waitTimer:Cancel()
+        waitTimer = nil
     end
 end
 
--- Enabled once Auctionator would start a scan, else greyed; between scans the label shows the minutes left, counted
--- down once a second only while the button shows and waits
-local function refreshIdle()
+-- Enabled once Auctionator would start a scan, else greyed; while it shows and waits, one timer enables it again
+local function refresh()
+    stopWaiting()
     if not scanButton then return end
     local wait = AP.Bridge.FullScanWait()
     scanButton:SetEnabled(wait == 0)
-    if not busy then
-        setLabel(wait == 0 and BUTTON_LABEL or ("%s %dm"):format(BUTTON_LABEL, minutesOf(wait)))
-    end
-    if wait > 0 and scanButton:IsVisible() then
-        if not waitTicker then waitTicker = C_Timer.NewTicker(1, refreshIdle) end
-    else
-        stopWaiting()
-    end
+    if wait > 0 and scanButton:IsVisible() then waitTimer = C_Timer.NewTimer(wait, refresh) end
 end
 
-local function showProgress(percent)
-    cancelReset()
-    busy, lastPercent = true, percent
-    setLabel(percentLabel(percent))
-    refreshIdle()
-end
-
--- Green at 100% after a finished scan, red at the reached percentage after a failed one, then back to Full Scan
-local function showResult(percent, color)
-    cancelReset()
-    busy = true
-    setLabel(color:WrapTextInColorCode(percentLabel(percent)))
-    resetTimer = C_Timer.NewTimer(RESULT_SECONDS, function()
-        resetTimer, busy = nil, false
-        refreshIdle()
-    end)
-end
-
--- Both scan modes report the same steps under their own event names, with progress as a fraction
-local SCAN_STEPS = { "ScanStart", "ScanProgress", "ScanComplete", "ScanFailed" }
+-- Both scan modes report the same steps under their own event names; the spinner turns from a start to its end
+local SCAN_STEPS = { "ScanStart", "ScanComplete", "ScanFailed" }
 local stepOf, scanEvents = {}, {}
 for _, events in ipairs({ Auctionator.FullScan.Events, Auctionator.IncrementalScan.Events }) do
     for _, step in ipairs(SCAN_STEPS) do
@@ -103,18 +57,12 @@ for _, events in ipairs({ Auctionator.FullScan.Events, Auctionator.IncrementalSc
     end
 end
 
-AP.Bridge.Listen(scanEvents, function(_, eventName, progress)
+AP.Bridge.Listen(scanEvents, function(_, eventName)
     local step = stepOf[eventName]
-    if step == "ScanStart" then
-        showProgress(0)
-    elseif step == "ScanProgress" then
-        showProgress(math.min(99, math.floor((progress or 0) * 100)))
-    elseif step == "ScanComplete" then
-        if eventName == Auctionator.FullScan.Events.ScanComplete then lastScans()[AP.Bridge.Realm()] = time() end
-        showResult(100, GREEN_FONT_COLOR)
-    elseif step == "ScanFailed" then
-        showResult(lastPercent, RED_FONT_COLOR)
-    end
+    if eventName == Auctionator.FullScan.Events.ScanComplete then lastScans()[AP.Bridge.Realm()] = time() end
+    scanning = step == "ScanStart"
+    if spinner then spinner:SetShown(scanning) end
+    refresh()
 end)
 
 -- Blizzard's yellow glowing callout, the one the Auction House uses for its undercut tip
@@ -154,9 +102,9 @@ local function AttachTip(target, text, targetPoint, relativeRegion)
     return ShowTip, Retire
 end
 
--- The button once placed, for the Highlight Deals checkbox beside it; nil before
+-- The button and its spinner once placed, for the Highlight Deals checkbox after them; nil before
 function AP.FullScanButton.Button()
-    return scanButton
+    return scanButton, spinner
 end
 
 -- /smv intro brings the tip back now while Full Scan shows, otherwise at its next show
@@ -173,7 +121,7 @@ function AP.FullScanButton.Ensure()
     local exportButton = shoppingFrame and shoppingFrame.ExportCSV
     if not inset or not exportButton then return false end
 
-    local button = AP.CreateButton(exportButton, BUTTON_LABEL, BUTTON_WIDTH)
+    local button = AP.CreateButton(exportButton, BUTTON_LABEL)
     AP.AttachTooltip(button, function(tooltip)
         GameTooltip_SetTitle(tooltip, BUTTON_LABEL)
         GameTooltip_AddNormalLine(tooltip, "Reads every listing on the Auction House through Auctionator's full scan, so every price and average is current. The Auction House allows one every 15 minutes.")
@@ -196,10 +144,13 @@ function AP.FullScanButton.Ensure()
         retireTip()
         AP.Bridge.StartFullScan()
     end)
-    button:HookScript("OnShow", refreshIdle)
+    button:HookScript("OnShow", refresh)
     button:HookScript("OnHide", stopWaiting)
+    spinner = AP.CreateSpinner(button)
+    spinner:SetPoint("LEFT", button, "RIGHT", 4, 0)
+    spinner:SetShown(scanning)
 
     scanButton = button
-    refreshIdle()
+    refresh()
     return true
 end

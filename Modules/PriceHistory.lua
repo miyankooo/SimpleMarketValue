@@ -93,18 +93,33 @@ function AP.Trend.Percent(currentPrice, average)
     return math.floor((currentPrice - average) / average * 100 + 0.5)
 end
 
+-- ===== Kinds =====
+-- The settings of each kind a buyer's deal goes by, by their keys: gear, meaning weapons, armor and profession tools,
+-- and all other items
+AP.Trend.GEAR = { deal = "gearDealPct", rate = "gearSaleRatePct", ignore = "gearIgnoreSaleRate" }
+AP.Trend.OTHER = { deal = "otherDealPct", rate = "otherSaleRatePct", ignore = "otherIgnoreSaleRate" }
+
+-- The item's kind by Auctionator's own rule for gear, from the item's class, which the client knows without loading
+-- the item; an item key or a link, anything else counting as another item
+local function kindOf(itemRef)
+    local itemID = type(itemRef) == "table" and itemRef.itemID
+        or type(itemRef) == "string" and tonumber(itemRef:match("item:(%d+)"))
+    local gear = itemID and AP.Bridge.IsEquipment(select(6, C_Item.GetItemInfoInstant(itemID)))
+    return gear and AP.Trend.GEAR or AP.Trend.OTHER
+end
+
 -- "+N%" / "-N%" / "0%" in the colour of its distance from the market value: green from the threshold the glows use on
--- the good side of mode (the Sell Threshold for a seller, the Deal Threshold for a buyer), red as far on the bad side,
--- yellow in between, so green figures match the glowing rows. Grey when fewer than MIN_DAYS of history back it; nil
--- pct yields nil so callers can skip an empty trend
-function AP.Trend.Colorize(pct, mode, days)
+-- the good side of mode (the Sell Threshold for a seller, the Deal Threshold of the item's kind for a buyer), red as
+-- far on the bad side, yellow in between, so green figures match the price a deal needs. Grey when fewer than MIN_DAYS
+-- of history back it; nil pct yields nil so callers can skip an empty trend
+function AP.Trend.Colorize(pct, mode, days, itemRef)
     if type(pct) ~= "number" then return nil end
 
     local text = pct == 0 and "0%" or string.format("%+d%%", pct)
     if days and days < AP.Trend.MIN_DAYS then return GRAY_FONT_COLOR:WrapTextInColorCode(text) end
     local db = AP.DB()
     local seller = mode == AP.Trend.UP_GREEN
-    local threshold = seller and db.sellThresholdPct or db.dealThresholdPct
+    local threshold = seller and db.sellThresholdPct or db[kindOf(itemRef).deal]
     local gain = seller and pct or -pct
     local color = gain >= threshold and GREEN_FONT_COLOR or gain <= -threshold and RED_FONT_COLOR or YELLOW_FONT_COLOR
     return color:WrapTextInColorCode(text)
@@ -125,38 +140,26 @@ end
 function AP.Trend.Relative(price, itemRef, mode)
     local value, days = AP.Trend.MarketValue(itemRef)
     local pct = AP.Trend.Percent(price, value)
-    return AP.Trend.Colorize(pct, mode, days), pct, pct ~= nil and (days == nil or days >= AP.Trend.MIN_DAYS)
+    return AP.Trend.Colorize(pct, mode, days, itemRef), pct, pct ~= nil and (days == nil or days >= AP.Trend.MIN_DAYS)
 end
 
--- ===== Great deals =====
--- A sale rate of 0.779 as the whole percent 78, the figure the tooltip shows and colours and great deals go by
+-- ===== Deals =====
+-- A sale rate of 0.779 as the whole percent 78, the figure the tooltip shows and colours and deals go by
 function AP.Trend.SalePercent(rate)
     return rate and math.floor(rate * 100 + 0.5)
 end
 
--- Items, the settings' word for gear: Auctionator's own rule, weapons, armor and profession tools, from the item's
--- class, which the client knows without loading the item; an item key or a link
-local function isGear(itemRef)
-    local itemID = type(itemRef) == "table" and itemRef.itemID
-        or type(itemRef) == "string" and tonumber(itemRef:match("item:(%d+)"))
-    return itemID ~= nil and AP.Bridge.IsEquipment(select(6, C_Item.GetItemInfoInstant(itemID)))
-end
-
--- Whether price is a great deal for the item, the rows Highlight Deals lights, by the settings of its kind, items or
--- anything else as a commodity: at least the kind's threshold under its market value, the same percentage the
--- Relative column shows, once enough data backs it. With the TSM app's sale rates loaded, the item must also sell at
--- least the kind's sale rate; Auctionator alone knows no sale rate, so it asks for none
-function AP.Trend.IsGreatDeal(price, itemRef)
-    local db, gear = AP.DB(), isGear(itemRef)
-    if AP.TSM.HasSaleRates() then
-        local salePercent = AP.Trend.SalePercent(AP.TSM.SaleRate(itemRef))
-        local minimum = gear and db.greatDealGearRatePct or db.greatDealCommodityRatePct
-        if not (salePercent and salePercent >= minimum) then return false end
-    end
-    local value, days = AP.Trend.MarketValue(itemRef)
-    local pct = AP.Trend.Percent(price, value)
-    local threshold = gear and db.greatDealGearPct or db.greatDealCommodityPct
-    return pct ~= nil and (days == nil or days >= AP.Trend.MIN_DAYS) and pct <= -threshold
+-- Whether a buyer's percentage from AP.Trend.Relative makes a deal, the rows Highlight Deals lights, by the settings
+-- of the item's kind: trusted, and at least the kind's Deal Threshold under the market value. With the TSM app's sale
+-- rates loaded, TSM must also see the item sell at least the kind's Sale Rate, unless the kind ignores it, so an item
+-- that rarely sells is no deal however cheap. Auctionator alone knows no sale rate, so it asks for none
+function AP.Trend.IsDeal(pct, trusted, itemRef)
+    if not trusted then return false end
+    local db, kind = AP.DB(), kindOf(itemRef)
+    if pct > -db[kind.deal] then return false end
+    if db[kind.ignore] or not AP.TSM.HasSaleRates() then return true end
+    local salePercent = AP.Trend.SalePercent(AP.TSM.SaleRate(itemRef))
+    return salePercent ~= nil and salePercent >= db[kind.rate]
 end
 
 -- ===== The player's side =====

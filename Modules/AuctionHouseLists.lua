@@ -1,11 +1,9 @@
 local _, AP = ...
 
 -- The relative value on Blizzard's own auction lists: a coloured percentage column beside each row's price, and buy
--- list rows at least the Deal Threshold below the market value glow green and great deals gold, while Highlight Deals
--- is ticked. A frame of the addon's own repaints the visible
--- rows while the Auction House shows, so no addon code ever runs inside Blizzard's list updates, whose row data later
--- feeds the restricted purchase calls.
-AP.AuctionHouseLists = {}
+-- list rows that are deals (AP.Trend.IsDeal) glow green while Highlight Deals is ticked. A frame of the addon's own
+-- repaints the visible rows while the Auction House shows, so no addon code ever runs inside Blizzard's list updates,
+-- whose row data later feeds the restricted purchase calls.
 
 -- Each list by its keys under AuctionHouseFrame, the row field with its price, whether the player buys from it, and
 -- where its column sits: the row cell it hangs on (that cell's money with money = true), the point of the percentage
@@ -27,7 +25,7 @@ local LISTS = {
     { "ItemSellList", price = "buyoutAmount", cell = 2, point = "RIGHT", to = "RIGHT", x = -4, header = true },
 }
 
--- Blizzard's own row highlight, tinted in the deal colours, so a deal reads as part of the list
+-- Blizzard's own row highlight, tinted in the deal colour, so a deal reads as part of the list
 local DEAL_ATLAS = "auctionhouse-ui-row-highlight"
 
 -- Per-row state lives here, keyed by Blizzard's rows, never on their frames
@@ -73,6 +71,7 @@ local function dealGlowFor(row)
         glow:SetAtlas(DEAL_ATLAS)
         glow:SetAllPoints()
         glow:SetBlendMode("ADD")
+        glow:SetVertexColor(AP.HighlightDeals.DEAL_COLOR:GetRGB())
         glows[row] = glow
     end
     return glow
@@ -122,15 +121,8 @@ local function paintRow(row, list)
     end
     text:SetText(value or "")
 
-    local isDeal, isGreat = false, false
-    if passOn and list.buy and rowData then
-        isDeal = trusted and pct <= -AP.DB().dealThresholdPct
-        isGreat = AP.Trend.IsGreatDeal(rowData[list.price], itemRef)
-    end
-    if isDeal or isGreat then
-        local glow = dealGlowFor(row)
-        glow:SetVertexColor((isGreat and AP.GreatDeals.GREAT_COLOR or AP.GreatDeals.DEAL_COLOR):GetRGB())
-        glow:Show()
+    if passOn and list.buy and rowData and AP.Trend.IsDeal(pct, trusted, itemRef) then
+        dealGlowFor(row):Show()
     elseif glows[row] then
         glows[row]:Hide()
     end
@@ -142,7 +134,7 @@ for _, list in ipairs(LISTS) do
 end
 
 local function paint()
-    passRevision, passOn = AP.settingsRevision, AP.GreatDeals.IsOn()
+    passRevision, passOn = AP.settingsRevision, AP.HighlightDeals.IsOn()
     for _, list in ipairs(LISTS) do
         local frame = listFrame(list)
         if frame and frame:IsVisible() and frame.ScrollBox then

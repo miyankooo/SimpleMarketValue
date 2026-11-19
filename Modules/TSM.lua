@@ -2,45 +2,37 @@ local addonName, AP = ...
 
 -- TSM's figures for an item, read straight from the TSM desktop app's data file, so the TradeSkillMaster addon can be
 -- disabled or load in any order: the region sale average (the market value the list percentages measure against
--- wherever it exists), the region sale rate, and how old they are. Never a single auction's price: that comes from Auctionator, which holds what the player saw
--- in the Auction House. The app's AppData.lua hands each block to AP.LoadData, as TradeSkillMaster_AppHelper's own
--- load of the same file hands it to TSM (see Loading below). Every figure is nil without the app's data for this
--- region, ruleset and faction. Tags, keys, fields and packing as TSM v4.15.6 reads them (LibTSMService
--- AppHelper/AppHelper.lua and AuctionDB/AuctionDB.lua, LibTSMApp Config/AuctionDBConfig.lua)
+-- wherever it exists), the region sale rate, and how old they are. Never a single auction's price: that comes from
+-- Auctionator, which holds what the player saw in the Auction House. The app's AppData.lua hands each block to
+-- AP.LoadData, as TradeSkillMaster_AppHelper's own load of the same file hands it to TSM (see Loading below). Every
+-- figure is nil without the app's data for this region. Tags, keys, fields and packing as TSM v4.15.6 reads them
+-- (LibTSMService AppHelper/AppHelper.lua and AuctionDB/AuctionDB.lua, LibTSMApp Config/AuctionDBConfig.lua)
 AP.TSM = {}
 
--- ===== The player's blocks =====
--- Forever has no named realms: TSM keys local data by ruleset and faction, such as PvP-Alliance, and region data as
--- Forever-<region> or Forever-HC-<region> (LibTSMWoW SessionInfo.lua, LibTSMService AppHelper.lua)
-local function ownKeys()
-    local rule = C_GameRules.IsGameRuleActive
-    local hardcore = rule(Enum.GameRule.HardcoreRuleset)
-    local rp, pvp = rule(Enum.GameRule.RPRuleset), rule(Enum.GameRule.PvPRuleset)
-    local ruleset = (hardcore and "Hardcore") or (rp and pvp and "Roleplay PvP") or (rp and "Roleplay") or (pvp and "PvP") or "Normal"
-    return {
-        realm = (ruleset .. "-" .. (UnitFactionGroup("player") or "")):lower(),
-        region = ((hardcore and "Forever-HC-" or "Forever-") .. GetCurrentRegionName()):lower(),
-    }
+-- ===== The region's sale block =====
+-- The one block read, the region's sale figures, filed as Forever-<region> or Forever-HC-<region> (LibTSMWoW
+-- SessionInfo.lua, LibTSMService AppHelper.lua)
+local SALE_TAG = "AUCTIONDB_REGION_SALE"
+
+local function regionKey()
+    local hardcore = C_GameRules.IsGameRuleActive(Enum.GameRule.HardcoreRuleset)
+    return ((hardcore and "Forever-HC-" or "Forever-") .. GetCurrentRegionName()):lower()
 end
 
--- The block holding the fields read below, the region's sale figures, by the key it is filed under
-local BLOCK_KEYS = {
-    AUCTIONDB_REGION_SALE = "region",
-}
+-- This region's key, false where the client cannot say; and the block, { fields = field to column, built = time(),
+-- body = its rows as text until the first lookup parses them into rows }
+local region, sale
 
-local keys
-local blocks = {}
-
--- AppData.lua calls this once per block as select(2, ...).LoadData(tag, realmOrRegion, data). The player's blocks are
--- kept as text and parsed at their first lookup, so login pays only for a few string matches
+-- AppData.lua calls this once per block as select(2, ...).LoadData(tag, realmOrRegion, data). The block is kept as
+-- text and parsed at its first lookup, so login pays only for a few string matches
 function AP.LoadData(tag, realmOrRegion, data)
-    if type(tag) ~= "string" or type(realmOrRegion) ~= "string" or type(data) ~= "string" then return end
-    -- An error here would stop the rest of the file, so unknown keys only mean no blocks match
-    if not keys then
-        local ok, own = pcall(ownKeys)
-        keys = ok and own or {}
+    if tag ~= SALE_TAG or type(realmOrRegion) ~= "string" or type(data) ~= "string" then return end
+    -- An error here would stop the rest of the file, so an unknown region only means no block matches
+    if region == nil then
+        local ok, key = pcall(regionKey)
+        region = ok and key or false
     end
-    if realmOrRegion:lower() ~= keys[BLOCK_KEYS[tag]] then return end
+    if realmOrRegion:lower() ~= region then return end
 
     -- The payload reads return {downloadTime=...,fields={"itemString",...},data={{item,value,...},...}}
     local _, dataStart = data:find(",data={", 1, true)
@@ -54,23 +46,23 @@ function AP.LoadData(tag, realmOrRegion, data)
     end
     -- downloadTime is when TSM built the block, the time TSM's own "last updated" goes by (AuctionDB.lua)
     local built = tonumber(data:sub(1, dataStart):match("downloadTime=(%d+)"))
-    blocks[#blocks + 1] = { fields = fields, built = built, body = data:sub(dataStart + 1, -3) }
+    sale = { fields = fields, built = built, body = data:sub(dataStart + 1, -3) }
 end
 
 -- Rows by item string, "i:<itemID>" for a plain item. A variant such as i:259891::i1 also answers for its base item,
 -- since the addon looks items up by item ID and TSM falls back to the base item
-local function rowsOf(block)
-    if not block.rows then
-        local rows = {}
-        for item, values in block.body:gmatch('{"?([^,"]+)"?,([^}]+)}') do
+local function rows()
+    if not sale.rows then
+        local parsed = {}
+        for item, values in sale.body:gmatch('{"?([^,"]+)"?,([^}]+)}') do
             local key = tonumber(item) and ("i:" .. item) or item
             local base = key:match("^i:%d+")
-            if base and base ~= key and not rows[base] then rows[base] = values end
-            rows[key] = values
+            if base and base ~= key and not parsed[base] then parsed[base] = values end
+            parsed[key] = values
         end
-        block.rows, block.body = rows, nil
+        sale.rows, sale.body = parsed, nil
     end
-    return block.rows
+    return sale.rows
 end
 
 -- TSM packs each value in base 32 and cuts values over 6 digits in two, since tonumber only holds 32 bits
@@ -82,34 +74,22 @@ local function unpack32(packed)
     return tonumber(packed, 32) or 0
 end
 
--- A row's values, unpacked at its first lookup and kept unpacked, as TSM does
-local function valuesOf(rows, key)
-    local row = rows[key]
+-- An item's field; nil when missing or zero, as TSM's own lookup. A row is unpacked at its first lookup and kept
+-- unpacked, as TSM does. Takes a link, an item string or an auction item key
+local function value(field, itemRef)
+    local column = sale and sale.fields[field]
+    local itemID = column and (type(itemRef) == "table" and itemRef.itemID
+        or type(itemRef) == "string" and (itemRef:match("item:(%d+)") or itemRef:match("^i:(%d+)")))
+    if not itemID then return nil end
+    local all, key = rows(), "i:" .. itemID
+    local row = all[key]
     if type(row) == "string" then
         local values = { strsplit(",", row) }
         for index, packed in ipairs(values) do values[index] = unpack32(packed) end
-        rows[key] = values
-        row = values
+        all[key], row = values, values
     end
-    return row
-end
-
--- An item's field from the first block that has both; nil when missing or zero, as TSM's own lookup. Takes a link, an
--- item string or an auction item key
-local function value(field, itemRef)
-    local itemID = type(itemRef) == "table" and itemRef.itemID
-        or type(itemRef) == "string" and (itemRef:match("item:(%d+)") or itemRef:match("^i:(%d+)"))
-    if not itemID then return nil end
-    local key = "i:" .. itemID
-    for _, block in ipairs(blocks) do
-        local column = block.fields[field]
-        local values = column and valuesOf(rowsOf(block), key)
-        if values then
-            local amount = values[column]
-            return amount and amount > 0 and amount or nil
-        end
-    end
-    return nil
+    local amount = row and row[column]
+    return amount and amount > 0 and amount or nil
 end
 
 -- ===== Figures =====
@@ -125,22 +105,15 @@ function AP.TSM.SaleRate(itemRef)
     return permille and permille / 1000
 end
 
--- Whether the app's data for this region carries sale rates, which great deals need
+-- Whether the app's data for this region carries sale rates, which deals need
 function AP.TSM.HasSaleRates()
-    for _, block in ipairs(blocks) do
-        if block.fields.regionSalePercent then return true end
-    end
-    return false
+    return sale ~= nil and sale.fields.regionSalePercent ~= nil
 end
 
--- When TSM built the data behind a field, as time(): the region's figures for regionSale, about daily. Not when the
--- app last synced, which says only that the app looked for news. nil without that data
-function AP.TSM.BuiltTime(field)
-    local newest
-    for _, block in ipairs(blocks) do
-        if block.fields[field] and block.built and block.built > (newest or 0) then newest = block.built end
-    end
-    return newest
+-- When TSM built the region's figures, as time(), about daily. Not when the app last synced, which says only that
+-- the app looked for news. nil without them
+function AP.TSM.BuiltTime()
+    return sale and sale.built
 end
 
 -- ===== Loading =====

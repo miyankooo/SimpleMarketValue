@@ -6,34 +6,34 @@ local function plusPercent(value) return ("+%d%%"):format(value) end
 local function minusPercent(value) return ("-%d%%"):format(value) end
 local function percent(value) return ("%d%%"):format(value) end
 
--- Sections in display order; a row is key, label, help, then the slider's min, max, step and value formatter. A row
--- marked tsm only applies with the TSM app's sale rates and greys out without them
+-- Sections in display order; a row is key, label, help, then for a slider its min, max, step and value formatter, and
+-- a row marked checkbox is a checkbox instead. A row marked tsm only applies with the TSM app's sale rates and greys
+-- out without them; a Sale Rate slider also greys out while its kind's Ignore Sale Rate, the key in ignore, is ticked
 local SECTIONS = {
     { "Selling", {
         { "sellThresholdPct", "Sell Threshold", "While you sell, percentages this far above the market value turn green and bag items glow green. As far below turns them red.", 5, 100, 1, plusPercent },
     } },
-    { "Buying", {
-        { "dealThresholdPct", "Deal Threshold", "While you buy, percentages this far below the market value turn green, and with Highlight Deals ticked their rows glow green in every buy list. As far above turns them red.", 5, 100, 1, minusPercent },
+    { "Gear, Equipment and Weapons", {
+        { "gearDealPct", "Deal Threshold", "While you buy weapons, armor or profession tools, percentages this far below the market value turn green, and with Highlight Deals ticked on Auctionator's Shopping tab their rows glow green in every buy list. As far above turns them red.", 5, 100, 1, minusPercent },
+        { "gearSaleRatePct", "Sale Rate", "With the TSM desktop app, a deal on gear must also sell at least this often by TSM's region sale rate, so gear that rarely sells never glows. Gear sells less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true, ignore = "gearIgnoreSaleRate" },
+        { "gearIgnoreSaleRate", "Ignore Sale Rate", "Ticked, deals on gear glow by their price alone, whatever TSM's sale rate.", checkbox = true, tsm = true },
     } },
-    { "Highlight Deals", {
-        { "greatDealCommodityPct", "Commodity Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, anything but items, such as cloth, herbs and potions, glows gold in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
-        { "greatDealCommodityRatePct", "Commodity Sale Rate", "With the TSM desktop app, great deals on anything but items must also sell at least this often by TSM's region sale rate.", 0, 100, 1, percent, tsm = true },
-        { "greatDealGearPct", "Item Threshold", "While Highlight Deals is ticked on Auctionator's Shopping tab, items, meaning weapons and armor, glow gold in the buy lists this far below the market value.", 5, 100, 1, minusPercent },
-        { "greatDealGearRatePct", "Item Sale Rate", "With the TSM desktop app, great deals on items, meaning weapons and armor, must also sell at least this often by TSM's region sale rate. Items sell less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true },
+    { "All Other Items", {
+        { "otherDealPct", "Deal Threshold", "While you buy anything but gear, such as cloth, herbs and potions, percentages this far below the market value turn green, and with Highlight Deals ticked on Auctionator's Shopping tab their rows glow green in every buy list. As far above turns them red.", 5, 100, 1, minusPercent },
+        { "otherSaleRatePct", "Sale Rate", "With the TSM desktop app, a deal on anything but gear must also sell at least this often by TSM's region sale rate, so an item that rarely sells never glows.", 0, 100, 1, percent, tsm = true, ignore = "otherIgnoreSaleRate" },
+        { "otherIgnoreSaleRate", "Ignore Sale Rate", "Ticked, deals on anything but gear glow by their price alone, whatever TSM's sale rate.", checkbox = true, tsm = true },
     } },
 }
 
--- What the addon does, where it works and what stays the game's own, before any row asks for a choice
-local INTRO = "Shows every auction price as a percentage of its market value: the 14-day average of the cheapest "
-    .. "listings your scans saw, without the odd one far from the rest, the newest days counting most. Green marks a "
-    .. "good price, yellow a fair one and red a poor one, by the thresholds below. A gray percentage rests on fewer "
-    .. "than 3 days of scans.\n\n"
-    .. "The percentages show in item tooltips, in Auctionator's Shopping and Selling tabs and in Blizzard's auction "
-    .. "lists. Items worth selling glow green in the Selling tab's bag list. Highlight Deals on the Shopping tab lights "
-    .. "deals green and great deals gold in the buy lists, great deals by thresholds of their own for commodities and "
-    .. "items.\n\n"
-    .. "Optional: with the TSM desktop app, tooltips add TSM's region sale average and sale rate, and the auction "
-    .. "lists and great deals measure against TSM's sale average wherever TSM has one."
+-- What the addon does, where it works and what stays the game's own, before any row asks for a choice. Two short
+-- paragraphs, so the intro and the rows fit the 601 px canvas
+local INTRO = "Shows every auction price as a percentage of its market value, the 14-day average of the cheapest "
+    .. "listings your scans saw, in item tooltips, Auctionator's Shopping and Selling tabs and Blizzard's auction "
+    .. "lists. Green marks a good price, yellow a fair one and red a poor one, by the thresholds below; gray rests on "
+    .. "fewer than 3 days of scans.\n\n"
+    .. "Items worth selling glow green in the Selling tab, and with Highlight Deals ticked on the Shopping tab, deals "
+    .. "glow green in the buy lists. With the TSM desktop app, prices measure against TSM's region sale average and a "
+    .. "deal must also sell at its kind's Sale Rate."
 
 -- The addon's page in Blizzard's Settings window, as its own canvas, copying the settings list's look
 -- (Blizzard_SettingsList.xml:14-30, Blizzard_SettingControls.xml, Blizzard_SettingControls.lua). Never a settings
@@ -129,8 +129,8 @@ end
 -- Blizzard's settings slider row lifts the slider 3 px (SettingsSliderControlMixin:OnLoad, Blizzard_SettingControls.lua:715)
 local SLIDER_Y = 3
 
--- Each slider by its setting key
-local controls = {}
+-- Each control by its setting key, and each Sale Rate row with its slider and the Ignore Sale Rate key it follows
+local controls, rateRows = {}, {}
 
 local function setValue(key, value)
     AP.DB()[key] = value
@@ -152,6 +152,15 @@ local function SetRowEnabled(row, control, enabled)
     control:SetEnabled(enabled)
 end
 
+-- A Sale Rate row applies with the TSM app's sale rates while its kind's Ignore Sale Rate is unticked. The app's data
+-- loads with the addon, before the page is built, and stays for the session
+local function refreshRateRows()
+    local rates, db = AP.TSM.HasSaleRates(), AP.DB()
+    for _, rateRow in ipairs(rateRows) do
+        SetRowEnabled(rateRow.row, rateRow.slider, rates and not db[rateRow.ignore])
+    end
+end
+
 local function addSlider(panel, above, def)
     local key, label, _, minValue, maxValue, step, formatter = unpack(def)
     local fill = fillFor(def)
@@ -161,8 +170,7 @@ local function addSlider(panel, above, def)
     slider:Init(AP.DB()[key], minValue, maxValue, (maxValue - minValue) / step, {
         [MinimalSliderWithSteppersMixin.Label.Right] = formatter,
     })
-    -- The TSM app's data loads with the addon, before the page is built, and stays for the session
-    if def.tsm then SetRowEnabled(row, slider, AP.TSM.HasSaleRates()) end
+    if def.ignore then rateRows[#rateRows + 1] = { row = row, slider = slider, ignore = def.ignore } end
     slider:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, value)
         -- Whole steps, whatever fraction the step division leaves
         setValue(key, math.floor(value + 0.5))
@@ -178,12 +186,36 @@ local function addSlider(panel, above, def)
     return row, slider
 end
 
+-- Blizzard's settings checkbox at the controls' edge. A click on the row ticks it too, as SettingsCheckboxControlMixin
+-- has it (Blizzard_SettingControls.lua:616-620); the template plays no sound, so a change plays the checkbox sounds
+-- Blizzard's options use. Its tooltip fills SettingsTooltip, the one the template shows
+local function addCheckbox(panel, above, def)
+    local key, label = def[1], def[2]
+    local fill = fillFor(def)
+    local row = AddRow(panel, above, label, fill)
+    local checkbox = CreateFrame("CheckButton", nil, row, "SettingsCheckboxTemplate")
+    checkbox:SetPoint("LEFT", row, "CENTER", CONTROL_X, 0)
+    checkbox:Init(AP.DB()[key], function() fill(SettingsTooltip) end)
+    checkbox:RegisterCallback(SettingsCheckboxMixin.Event.OnValueChanged, function(_, checked)
+        PlaySound(checked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
+        setValue(key, checked)
+        refreshRateRows()
+    end, row)
+    row:SetScript("OnMouseUp", function()
+        if checkbox:IsEnabled() then checkbox:Click() end
+    end)
+    if def.tsm then SetRowEnabled(row, checkbox, AP.TSM.HasSaleRates()) end
+    controls[key] = checkbox
+    return row, checkbox
+end
+
 local function restoreDefaults()
     local db = AP.DB()
     for key, value in pairs(AP.Defaults) do
         db[key] = value
         controls[key]:SetValue(value)
     end
+    refreshRateRows()
     AP.SettingsChanged()
     AP.BagGlow.Repaint()
 end
@@ -195,9 +227,10 @@ EventUtil.ContinueOnPlayerLogin(function()
         local title, rows = unpack(section)
         above = AddSectionHeader(panel, above, title)
         for _, def in ipairs(rows) do
-            above = addSlider(panel, above, def)
+            above = (def.checkbox and addCheckbox or addSlider)(panel, above, def)
         end
     end
+    refreshRateRows()
     RegisterPanel(panel)
 end)
 

@@ -22,7 +22,7 @@ Modules\TrendColumn.lua
 Modules\BagGlow.lua
 Modules\SaleScan.lua
 Modules\FullScanButton.lua
-Modules\GreatDeals.lua
+Modules\HighlightDeals.lua
 Modules\AuctionHouseLists.lua
 UI\Settings.lua
 UI\Welcome.lua
