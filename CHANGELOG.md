@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.7.0...v2.8.0) (2026-11-23)
+
+
+### Features
+
+* Full Scan and Sale Scan show their progress in their labels again, in place of the game's loading spinner: Full Scan counts up its percentage, such as Full Scan 42%, and Sale Scan the bag items searched, such as Sale Scan 3/12 ([d2495d5](https://github.com/miyankooo/SimpleMarketValue/commit/d2495d57010478f5cdcc85f6f3775c1725df05d2))
+
 ## [2.7.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.6.0...v2.7.0) (2026-11-19)
 
 
