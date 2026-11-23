@@ -9,7 +9,7 @@ AP.HighlightDeals = {}
 
 local LABEL = "Highlight Deals"
 
--- Space between the checkbox and Full Scan's spinner slot, the gap between related controls
+-- Space between the checkbox and Full Scan, the gap between related controls
 local GAP = 8
 
 -- Blizzard's own row highlight, the glow deal rows take in every buy list, in the green of a deal's percentage
@@ -113,16 +113,16 @@ local function fillTooltip(tooltip)
         .. ". The number counts the deals in these results. Type /smv to change the thresholds.")
 end
 
--- On the Export Results row after Full Scan and its spinner, with their parent, so it hides whenever a buy screen
+-- On the Export Results row after Full Scan, with its parent, so it hides whenever a buy screen
 -- covers the results; true once the checkbox and every listing are in place
 function AP.HighlightDeals.Ensure()
     local listingsReady = attachListings()
     if checkbox then return listingsReady end
-    local scanButton, spinner = AP.FullScanButton.Button()
+    local scanButton = AP.FullScanButton.Button()
     if not scanButton then return false end
 
     checkbox = AP.CreateCheckbox(scanButton:GetParent(), LABEL)
-    checkbox:SetPoint("LEFT", spinner, "RIGHT", GAP, 0)
+    checkbox:SetPoint("LEFT", scanButton, "RIGHT", GAP, 0)
     checkbox:SetChecked(AP.HighlightDeals.IsOn())
     AP.AttachTooltip(checkbox, fillTooltip)
     -- The template plays no sound, so the click plays the checkbox sounds Blizzard's options use

@@ -124,17 +124,6 @@ function AP.CreateButton(parent, label, width)
     return button
 end
 
--- SpinnerTemplate (Blizzard_SharedXML/Spinner.xml), the Auction House's own loading spinner, at the 24 px of a button
--- row and hidden until work starts. It sits beside the button that started the work, 4 px off, as the housing
--- bulletin board places one by its invite button (Blizzard_HousingBulletinBoard.xml:345-350). Its template plays and
--- stops the animation on show and hide.
-function AP.CreateSpinner(parent)
-    local spinner = CreateFrame("Frame", nil, parent, "SpinnerTemplate")
-    spinner:SetSize(24, 24)
-    spinner:Hide()
-    return spinner
-end
-
 -- CheckboxWithLabelTemplate (Blizzard_SharedXML/Shared/Button/CheckButtonTemplates.xml:78), the minimal art Blizzard's
 -- Settings use, at the 24 px AddonList gives it (Blizzard_AddOnList/AddonList.xml:73-74). The label joins the hit rect,
 -- so a click on it toggles the box.
