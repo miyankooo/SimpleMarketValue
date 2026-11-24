@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.9.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.8.0...v2.9.0) (2026-11-24)
+
+
+### Features
+
+* Full Scan reads the lowest price of every item, as often as you like, and the 14-day average rests on each day's lowest price; tick Full Scan Reads Every Listing for the full listing scan, once every 15 minutes ([04528d6](https://github.com/miyankooo/SimpleMarketValue/commit/04528d6248cb37c24edd19b9b3ee3c9d17c05c87))
+* the settings name each option for what it sets, Good Selling Price, Good Buying Price and Minimum TSM Sale Rate, under Scanning, Selling, Buying Gear and Buying Other Items, and a greyed option says why in its tooltip ([04528d6](https://github.com/miyankooo/SimpleMarketValue/commit/04528d6248cb37c24edd19b9b3ee3c9d17c05c87))
+
 ## [2.8.0](https://github.com/miyankooo/SimpleMarketValue/compare/v2.7.0...v2.8.0) (2026-11-23)
 
 
