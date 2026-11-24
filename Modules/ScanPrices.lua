@@ -1,9 +1,11 @@
 local addonName, AP = ...
 
--- The price of an item in each scan that sees every one of its listings, kept per day for the 14-day average
--- (AP.Trend.AverageFor), which takes Auctionator's lowest buyout of the day on days without one. Two scans see them all: Auctionator's replicate full scan, which reads the whole Auction
--- House, and its searches for one item, from Sale Scan, the Selling tab and the buy screens. Auctionator's
--- incremental scan and the Shopping tab's lists see only each item's lowest price, so they add none
+-- While Full Scan Reads Every Listing is ticked, the price of an item in each scan that sees every one of its listings, kept per
+-- day for the 14-day average (AP.Trend.AverageFor), which takes Auctionator's lowest buyout of the day on days without
+-- one. Two scans see them all: Auctionator's replicate full scan, which reads the whole Auction House, and its searches
+-- for one item, from Sale Scan, the Selling tab and the buy screens. Auctionator's incremental scan and the Shopping
+-- tab's lists see only each item's lowest price, so they add none. Unticked, the average rests on the lowest buyouts
+-- alone, so nothing is recorded
 AP.ScanPrices = {}
 
 -- ===== Scan price =====
@@ -190,6 +192,7 @@ AP.Bridge.Listen({
     Auctionator.AH.Events.CommoditySearchResultsReady,
     Auctionator.AH.Events.ItemSearchResultsReady,
 }, function(_, eventName, payload)
+    if not AP.DB().scanEveryListing then return end
     if eventName == Auctionator.FullScan.Events.ScanComplete then
         recordFullScan()
     elseif eventName == Auctionator.AH.Events.CommoditySearchResultsReady then

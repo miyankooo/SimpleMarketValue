@@ -5,6 +5,8 @@ AP.title = C_AddOns.GetAddOnMetadata(addonName, "Title")
 
 -- Setting defaults; the settings panel uses the same keys as its variable keys
 AP.Defaults = {
+    -- Full Scan reads each item's lowest price, with no wait between scans; ticked, every listing, once per 15 minutes
+    scanEveryListing = false,
     sellThresholdPct = 15,
     -- Buying, per kind, gear and all other items: a deal is 20% under the market value at a TSM sale rate of 60% for
     -- gear, which sells less often, and 80% for the rest. On a full scan of Forever's EU auction house (2026-11-15),

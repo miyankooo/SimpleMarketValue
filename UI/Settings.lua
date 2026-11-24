@@ -8,32 +8,33 @@ local function percent(value) return ("%d%%"):format(value) end
 
 -- Sections in display order; a row is key, label, help, then for a slider its min, max, step and value formatter, and
 -- a row marked checkbox is a checkbox instead. A row marked tsm only applies with the TSM app's sale rates and greys
--- out without them; a Sale Rate slider also greys out while its kind's Ignore Sale Rate, the key in ignore, is ticked
+-- out without them; a sale rate slider also greys out while its kind's Ignore TSM Sale Rate, the key in ignore, is
+-- ticked. Labels say what a row sets in the player's words, so the page reads without its tooltips
 local SECTIONS = {
+    { "Scanning", {
+        { "scanEveryListing", "Full Scan Reads Every Listing", "Unticked, Full Scan reads the lowest price of each item, as often as you like, and the market value averages each day's lowest price. Ticked, it reads every listing, once every 15 minutes, and the market value averages the cheapest 15 to 30% of each item's listings, as TSM does, so a single underpriced listing cannot pull it down.", checkbox = true },
+    } },
     { "Selling", {
-        { "sellThresholdPct", "Sell Threshold", "While you sell, percentages this far above the market value turn green and bag items glow green. As far below turns them red.", 5, 100, 1, plusPercent },
+        { "sellThresholdPct", "Good Selling Price", "While you sell, a price at least this far above the market value shows green, and the item glows green in Auctionator's Selling tab. As far below shows red, anything between yellow.", 5, 100, 1, plusPercent },
     } },
-    { "Gear, Equipment and Weapons", {
-        { "gearDealPct", "Deal Threshold", "While you buy weapons, armor or profession tools, percentages this far below the market value turn green, and with Highlight Deals ticked on Auctionator's Shopping tab their rows glow green in every buy list. As far above turns them red.", 5, 100, 1, minusPercent },
-        { "gearSaleRatePct", "Sale Rate", "With the TSM desktop app, a deal on gear must also sell at least this often by TSM's region sale rate, so gear that rarely sells never glows. Gear sells less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true, ignore = "gearIgnoreSaleRate" },
-        { "gearIgnoreSaleRate", "Ignore Sale Rate", "Ticked, deals on gear glow by their price alone, whatever TSM's sale rate.", checkbox = true, tsm = true },
+    { "Buying Gear", {
+        { "gearDealPct", "Good Buying Price", "While you buy weapons, armor or profession tools, a price at least this far below the market value shows green and counts as a deal, which glows green in the buy lists while Highlight Deals is ticked on Auctionator's Shopping tab. As far above shows red.", 5, 100, 1, minusPercent },
+        { "gearSaleRatePct", "Minimum TSM Sale Rate", "With the TSM desktop app, gear only counts as a deal when TSM sees it sell at least this often in your region, so gear that rarely sells never glows. Gear sells less often than goods sold in stacks.", 0, 100, 1, percent, tsm = true, ignore = "gearIgnoreSaleRate" },
+        { "gearIgnoreSaleRate", "Ignore TSM Sale Rate", "Ticked, gear counts as a deal by its price alone, however rarely TSM sees it sell.", checkbox = true, tsm = true },
     } },
-    { "All Other Items", {
-        { "otherDealPct", "Deal Threshold", "While you buy anything but gear, such as cloth, herbs and potions, percentages this far below the market value turn green, and with Highlight Deals ticked on Auctionator's Shopping tab their rows glow green in every buy list. As far above turns them red.", 5, 100, 1, minusPercent },
-        { "otherSaleRatePct", "Sale Rate", "With the TSM desktop app, a deal on anything but gear must also sell at least this often by TSM's region sale rate, so an item that rarely sells never glows.", 0, 100, 1, percent, tsm = true, ignore = "otherIgnoreSaleRate" },
-        { "otherIgnoreSaleRate", "Ignore Sale Rate", "Ticked, deals on anything but gear glow by their price alone, whatever TSM's sale rate.", checkbox = true, tsm = true },
+    { "Buying Other Items", {
+        { "otherDealPct", "Good Buying Price", "While you buy anything but gear, such as cloth, herbs and potions, a price at least this far below the market value shows green and counts as a deal, which glows green in the buy lists while Highlight Deals is ticked on Auctionator's Shopping tab. As far above shows red.", 5, 100, 1, minusPercent },
+        { "otherSaleRatePct", "Minimum TSM Sale Rate", "With the TSM desktop app, anything but gear only counts as a deal when TSM sees it sell at least this often in your region, so an item that rarely sells never glows.", 0, 100, 1, percent, tsm = true, ignore = "otherIgnoreSaleRate" },
+        { "otherIgnoreSaleRate", "Ignore TSM Sale Rate", "Ticked, anything but gear counts as a deal by its price alone, however rarely TSM sees it sell.", checkbox = true, tsm = true },
     } },
 }
 
--- What the addon does, where it works and what stays the game's own, before any row asks for a choice. Two short
--- paragraphs, so the intro and the rows fit the 601 px canvas
-local INTRO = "Shows every auction price as a percentage of its market value, the 14-day average of the cheapest "
-    .. "listings your scans saw, in item tooltips, Auctionator's Shopping and Selling tabs and Blizzard's auction "
-    .. "lists. Green marks a good price, yellow a fair one and red a poor one, by the thresholds below; gray rests on "
-    .. "fewer than 3 days of scans.\n\n"
-    .. "Items worth selling glow green in the Selling tab, and with Highlight Deals ticked on the Shopping tab, deals "
-    .. "glow green in the buy lists. With the TSM desktop app, prices measure against TSM's region sale average and a "
-    .. "deal must also sell at its kind's Sale Rate."
+-- What the addon does, where it works and what the colours mean, before any row asks for a choice. One paragraph, so
+-- the intro and the four sections fit the 601 px canvas; the rows' tooltips carry the rest
+local INTRO = "Shows every auction price as a percentage above or below its market value, the 14-day average of your "
+    .. "scans, in item tooltips, Auctionator's tabs and Blizzard's auction lists. Green marks a good price by the "
+    .. "settings below, red a poor one, yellow one in between and gray one with under 3 days of scans. With the TSM "
+    .. "desktop app, TSM's region sale average is the market value wherever it has one."
 
 -- The addon's page in Blizzard's Settings window, as its own canvas, copying the settings list's look
 -- (Blizzard_SettingsList.xml:14-30, Blizzard_SettingControls.xml, Blizzard_SettingControls.lua). Never a settings
@@ -129,20 +130,26 @@ end
 -- Blizzard's settings slider row lifts the slider 3 px (SettingsSliderControlMixin:OnLoad, Blizzard_SettingControls.lua:715)
 local SLIDER_Y = 3
 
--- Each control by its setting key, and each Sale Rate row with its slider and the Ignore Sale Rate key it follows
+-- Each control by its setting key, and each sale rate row with its slider and the Ignore TSM Sale Rate key it follows
 local controls, rateRows = {}, {}
 
 local function setValue(key, value)
     AP.DB()[key] = value
-    -- Painted glows and colours depend on the thresholds
+    -- Painted glows and colours depend on the thresholds and the market value
     AP.SettingsChanged()
-    if key == "sellThresholdPct" then AP.BagGlow.Repaint() end
+    if key == "sellThresholdPct" or key == "scanEveryListing" then AP.BagGlow.Repaint() end
 end
 
+-- A greyed row says why it is off in a red line, as Blizzard's dungeon finder does
 local function fillFor(def)
     return function(tooltip)
         GameTooltip_SetTitle(tooltip, def[2])
         GameTooltip_AddNormalLine(tooltip, def[3])
+        if def.tsm and not AP.TSM.HasSaleRates() then
+            GameTooltip_AddErrorLine(tooltip, "Needs the TSM desktop app's data.")
+        elseif def.ignore and AP.DB()[def.ignore] then
+            GameTooltip_AddErrorLine(tooltip, "Off while Ignore TSM Sale Rate is ticked.")
+        end
     end
 end
 
@@ -152,7 +159,7 @@ local function SetRowEnabled(row, control, enabled)
     control:SetEnabled(enabled)
 end
 
--- A Sale Rate row applies with the TSM app's sale rates while its kind's Ignore Sale Rate is unticked. The app's data
+-- A sale rate row applies with the TSM app's sale rates while its kind's Ignore TSM Sale Rate is unticked. The app's data
 -- loads with the addon, before the page is built, and stays for the session
 local function refreshRateRows()
     local rates, db = AP.TSM.HasSaleRates(), AP.DB()

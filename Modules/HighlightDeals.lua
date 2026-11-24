@@ -1,8 +1,8 @@
 local _, AP = ...
 
 -- "Highlight Deals", a checkbox beside Full Scan on Auctionator's Shopping tab. While it is ticked, deals glow green in
--- the buy lists, Blizzard's and Auctionator's alike; unticked, no row glows. A deal is at least its kind's Deal
--- Threshold under the market value, gear's or all other items', and with the TSM app sells at least its kind's Sale
+-- the buy lists, Blizzard's and Auctionator's alike; unticked, no row glows. A deal is at least its kind's Good Buying
+-- Price under the market value, gear's or other items', and with the TSM app sells at least its kind's Minimum TSM Sale
 -- Rate unless the kind ignores it (AP.Trend.IsDeal). The label counts the deals in the Shopping tab's results. The
 -- choice is saved, like a filter, and starts ticked
 AP.HighlightDeals = {}
@@ -93,7 +93,8 @@ local function attachListings()
 end
 
 -- ===== Checkbox =====
--- One kind's rule, such as "gear at least 20% below it", and where its Sale Rate counts, the rate it must sell at
+-- One kind's rule, such as "gear at least 20% below it", and where its Minimum TSM Sale Rate counts, the rate it must
+-- sell at
 local function kindRule(kind, items, below, rates)
     local db = AP.DB()
     local rule = ("%s at least %d%% below %s"):format(items, db[kind.deal], below)
@@ -110,7 +111,7 @@ local function fillTooltip(tooltip)
     GameTooltip_AddNormalLine(tooltip, "Ticked, deals glow green in every buy list: "
         .. kindRule(AP.Trend.GEAR, "gear", average, rates) .. ", and "
         .. kindRule(AP.Trend.OTHER, "all other items", "it", rates)
-        .. ". The number counts the deals in these results. Type /smv to change the thresholds.")
+        .. ". The number counts the deals in these results. Type /smv to change what counts as a deal.")
 end
 
 -- On the Export Results row after Full Scan, with its parent, so it hides whenever a buy screen

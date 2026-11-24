@@ -1,8 +1,9 @@
 local _, AP = ...
 
--- "Full Scan" on Auctionator's Shopping tab: starts Auctionator's replicate full scan, which reads every listing the
--- scan prices need, and shows the scan's progress in its label. While Blizzard holds the next scan back it greys out,
--- and its tooltip says for how long and when the last full scan on the realm finished
+-- "Full Scan" on Auctionator's Shopping tab: starts the full scan Full Scan Reads Every Listing picks, Auctionator's incremental
+-- scan of each item's lowest price or its replicate scan of every listing, and shows the scan's progress in its label.
+-- While Blizzard holds the next replicate scan back it greys out, and its tooltip says for how long and when the last
+-- full scan on the realm finished
 AP.FullScanButton = {}
 
 local BUTTON_LABEL = "Full Scan"
@@ -103,13 +104,16 @@ AP.Bridge.Listen(scanEvents, function(_, eventName, progress)
         showProgress(math.min(99, math.floor((progress or 0) * 100)))
         return
     elseif step == "ScanComplete" then
-        if eventName == Auctionator.FullScan.Events.ScanComplete then lastScans()[AP.Bridge.Realm()] = time() end
+        lastScans()[AP.Bridge.Realm()] = time()
         showResult(100, GREEN_FONT_COLOR)
     else
         showResult(lastPercent, RED_FONT_COLOR)
     end
     refresh()
 end)
+
+-- Full Scan Reads Every Listing decides whether the button waits
+AP.OnSettingsChanged(refresh)
 
 -- Blizzard's yellow glowing callout, the one the Auction House uses for its undercut tip
 -- (Blizzard_AuctionHouseUI/Shared/Blizzard_AuctionHouseSellFrame.lua:507), as an own HelpTipTemplate frame on the
@@ -170,13 +174,18 @@ function AP.FullScanButton.Ensure()
     local button = AP.CreateButton(exportButton, scanLabel or BUTTON_LABEL, BUTTON_WIDTH)
     AP.AttachTooltip(button, function(tooltip)
         GameTooltip_SetTitle(tooltip, BUTTON_LABEL)
-        GameTooltip_AddNormalLine(tooltip, "Reads every listing on the Auction House through Auctionator's full scan, so every price and average is current. The Auction House allows one every 15 minutes.")
+        GameTooltip_AddNormalLine(tooltip, AP.DB().scanEveryListing
+            and "Reads every listing on the Auction House through Auctionator's full scan, so every price and average is current. The Auction House allows one every 15 minutes."
+            or "Reads the lowest price of every item on the Auction House through Auctionator's full scan, so every price and average is current.")
         local last = lastScans()[AP.Bridge.Realm()]
         GameTooltip_AddNormalLine(tooltip, last and ("Last full scan: %s ago."):format(AP.Age(last))
             or "No full scan on this realm yet.")
         local wait = AP.Bridge.FullScanWait()
         if wait > 0 then
             GameTooltip_AddErrorLine(tooltip, ("Next full scan in %d |4minute:minutes;."):format(minutesOf(wait)))
+        end
+        if AP.Bridge.BlockedBySearch() then
+            GameTooltip_AddErrorLine(tooltip, "Wait for the shopping search to finish first.")
         end
     end)
     -- Greyed while it waits, it still explains itself
@@ -188,7 +197,7 @@ function AP.FullScanButton.Ensure()
     showTip, retireTip = AttachTip(button, TIP_TEXT, HelpTip.Point.TopEdgeCenter)
     button:SetScript("OnClick", function()
         retireTip()
-        AP.Bridge.StartFullScan()
+        if not AP.Bridge.BlockedBySearch() then AP.Bridge.StartFullScan() end
     end)
     button:HookScript("OnShow", refresh)
     button:HookScript("OnHide", stopWaiting)

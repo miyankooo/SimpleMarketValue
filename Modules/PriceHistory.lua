@@ -1,8 +1,8 @@
 local _, AP = ...
 
 -- The relative value: a price against the item's market value. That is the 14-day average of its daily prices, from
--- the addon's scan prices (AP.ScanPrices) and Auctionator's own history; for players who run the TSM app too, TSM's
--- region sale average wherever TSM has one
+-- Auctionator's own history and, while Full Scan Reads Every Listing is ticked, the addon's scan prices (AP.ScanPrices); for
+-- players who run the TSM app too, TSM's region sale average wherever TSM has one
 AP.Trend = {}
 
 -- ===== The 14-day average =====
@@ -15,12 +15,13 @@ local DAY_WEIGHTS = { [0] = 132, 125, 100, 75, 45, 34, 33, 38, 28, 21, 15, 10, 7
 AP.Trend.MIN_DAYS = 3
 
 -- The average price for one price-database key, the weighted mean of its daily prices inside the window, and the
--- days it rests on; nil without any. A day's price is its scan price where a scan saw every listing; on other days
--- Auctionator's lowest buyout of that day, so every item Auctionator has priced keeps an average, Auctionator being
--- the one required source. A day without either is left out, its weight with it, so the days that have a price share
--- the whole weight and no price is made up, as TSM skips them
+-- days it rests on; nil without any. A day's price is Auctionator's lowest buyout of that day, what its default scan
+-- reads. While Full Scan Reads Every Listing is ticked, a day where a scan saw every listing takes that scan price instead, and
+-- the other days keep the lowest buyout, so every item Auctionator has priced keeps an average, Auctionator being the
+-- one required source. A day without either is left out, its weight with it, so the days that have a price share the
+-- whole weight and no price is made up, as TSM skips them
 local function averageFor(dbKey)
-    local history = AP.ScanPrices.History(dbKey)
+    local history = AP.DB().scanEveryListing and AP.ScanPrices.History(dbKey)
     local today = AP.ScanPrices.Today()
     local total, weights, days = 0, 0, 0
     if history then
@@ -109,7 +110,7 @@ local function kindOf(itemRef)
 end
 
 -- "+N%" / "-N%" / "0%" in the colour of its distance from the market value: green from the threshold the glows use on
--- the good side of mode (the Sell Threshold for a seller, the Deal Threshold of the item's kind for a buyer), red as
+-- the good side of mode (the Good Selling Price for a seller, the Good Buying Price of the item's kind for a buyer), red as
 -- far on the bad side, yellow in between, so green figures match the price a deal needs. Grey when fewer than MIN_DAYS
 -- of history back it; nil pct yields nil so callers can skip an empty trend
 function AP.Trend.Colorize(pct, mode, days, itemRef)
@@ -150,8 +151,8 @@ function AP.Trend.SalePercent(rate)
 end
 
 -- Whether a buyer's percentage from AP.Trend.Relative makes a deal, the rows Highlight Deals lights, by the settings
--- of the item's kind: trusted, and at least the kind's Deal Threshold under the market value. With the TSM app's sale
--- rates loaded, TSM must also see the item sell at least the kind's Sale Rate, unless the kind ignores it, so an item
+-- of the item's kind: trusted, and at least the kind's Good Buying Price under the market value. With the TSM app's sale
+-- rates loaded, TSM must also see the item sell at least the kind's Minimum TSM Sale Rate, unless the kind ignores it, so an item
 -- that rarely sells is no deal however cheap. Auctionator alone knows no sale rate, so it asks for none
 function AP.Trend.IsDeal(pct, trusted, itemRef)
     if not trusted then return false end

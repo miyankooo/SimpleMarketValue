@@ -160,23 +160,31 @@ function AP.Bridge.Listen(events, handler)
 end
 
 -- ===== Auction house =====
--- Seconds left until Auctionator allows the next replicate scan, 0 once it would start: Blizzard allows one every 15
--- minutes, and Auctionator counts them from the last one's start (AuctionatorFullScanFrameMixin:CanInitiate, from
--- Auctionator.SavedState.TimeOfLastReplicateScan)
+-- Seconds left until the next full scan may start, 0 once it would. Only the replicate scan waits: Blizzard allows one
+-- every 15 minutes, and Auctionator counts them from the last one's start (AuctionatorFullScanFrameMixin:CanInitiate,
+-- from Auctionator.SavedState.TimeOfLastReplicateScan)
 local REPLICATE_INTERVAL = 15 * 60
 function AP.Bridge.FullScanWait()
     local last = Auctionator.SavedState and Auctionator.SavedState.TimeOfLastReplicateScan
-    if type(last) ~= "number" then return 0 end
+    if not AP.DB().scanEveryListing or type(last) ~= "number" then return 0 end
     return math.max(0, REPLICATE_INTERVAL - (time() - last))
 end
 
--- Start Auctionator's replicate scan, the one its "Alternate Scan Mode" option runs, whatever that option says: it
--- reads every listing on the Auction House, which the scan prices need, where its default incremental scan sees only
--- each item's lowest price. Blizzard allows one every 15 minutes, and Auctionator says when the next is due. The scan
--- frame exists once the Auction House has opened
+-- Start the full scan Full Scan Reads Every Listing picks, whatever Auctionator's own "Alternate Scan Mode" says: by default its
+-- incremental scan, which reads each item's lowest price through the browse list, or ticked its replicate scan, which
+-- reads every listing the scan prices need. Both scan frames exist once the Auction House has opened
 function AP.Bridge.StartFullScan()
-    local scanFrame = Auctionator.State.FullScanFrameRef
+    local state = Auctionator.State
+    local scanFrame = AP.DB().scanEveryListing and state.FullScanFrameRef or state.IncrementalScanFrameRef
     if scanFrame then scanFrame:InitiateScan() end
+end
+
+-- The incremental scan pages the client's one browse list, as a shopping search does, so it waits for a running search;
+-- the replicate scan reads its own list and always starts. Auctionator's own scan button never meets a running search,
+-- since leaving the Shopping tab stops it (AuctionatorShoppingTabFrameMixin:OnHide)
+function AP.Bridge.BlockedBySearch()
+    local shoppingFrame = AuctionatorShoppingFrame
+    return not AP.DB().scanEveryListing and shoppingFrame ~= nil and shoppingFrame.searchRunning == true
 end
 
 -- Single-item search through Auctionator's retrying scanner, with owned auctions split out as Auctionator's own searches do; gear uses the sell search so every suffix variant answers
